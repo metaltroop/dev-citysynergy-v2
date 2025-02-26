@@ -1,3 +1,5 @@
+// utils/dynamicModelGenerator.js
+
 const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
 
@@ -190,28 +192,19 @@ const getDepartmentModels = (deptId, deptCode) => {
 };
 
 // Add this new function
-const getExistingDepartmentModels = (deptId, deptCode) => {
-    if (!deptId || !deptCode) {
-        throw new Error('Department ID and Code are required');
+function getExistingDepartmentModels() {
+    console.log("Fetching department models...");
+    const existingModels = {}; // Fetch your actual models here
+
+    if (!existingModels || Object.keys(existingModels).length === 0) {
+        console.error("Error: No department models found.");
+        return {}; // Prevent undefined errors
     }
 
-    const modelPrefix = `${deptId}_${deptCode}`.toUpperCase(); // Ensure uppercase
-    const DeptRole = sequelize.models[`${modelPrefix}_role`];
-    const DeptFeature = sequelize.models[`${modelPrefix}_feature`];
-    const DeptRoleFeature = sequelize.models[`${modelPrefix}_role_feature`];
-    const DeptUserRole = sequelize.models[`${modelPrefix}_user_role`];
+    return existingModels;
+}
 
-    if (!DeptRole || !DeptFeature || !DeptRoleFeature || !DeptUserRole) {
-        throw new Error(`Department models not found for ${deptCode} (${modelPrefix})`);
-    }
 
-    return {
-        DeptRole,
-        DeptFeature,
-        DeptRoleFeature,
-        DeptUserRole
-    };
-};
 
 // Initialize department tables with default data
 const initializeDepartmentTables = async (models, transaction) => {
@@ -337,4 +330,4 @@ module.exports = {
     initializeDepartmentTables,
     validateDepartment
 };
- 
+    

@@ -41,55 +41,38 @@ const login = async (req, res) => {
         });
 
         if (!user) {
-            return res.status(401).json({
-                success: false,
-                message: 'Invalid credentials'
-            });
+            return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
 
-        // Check if first login and needs password change
+        // **First Login Handling with OTP**
         if (user.isFirstLogin && user.needsPasswordChange) {
-            // Verify temporary password
             const isTempPasswordValid = await bcrypt.compare(password, user.tempPassword);
             if (!isTempPasswordValid) {
-                return res.status(401).json({
-                    success: false,
-                    message: 'Invalid credentials'
-                });
+                return res.status(401).json({ success: false, message: 'Invalid credentials' });
             }
 
-            // Create OTP and get the value
             const otpRecord = await createOtp(sequelize, user.uuid, 'FIRST_LOGIN');
-
-            // Send OTP email
             await emailService.sendFirstLoginOTP(user.email, otpRecord.otp);
 
             return res.status(200).json({
                 success: true,
                 message: 'OTP sent to email',
-                data: {
-                    requiresOTP: true,
-                    email: user.email
-                }
+                data: { requiresOTP: true, email: user.email }
             });
         }
 
-        // Regular login flow
+        // **Regular Login Flow**
         const isValidPassword = await bcrypt.compare(password, user.password);
         if (!isValidPassword) {
-            return res.status(401).json({
-                success: false,
-                message: 'Invalid credentials'
-            });
+            return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
 
         // Generate tokens
         const tokens = generateTokens(user);
-
-        // Get user permissions
         let permissions = [];
+
         if (user.type === 'dev') {
-            // Fetch permissions for dev users
+            // **Developer Role Handling (unchanged)**
             permissions = await DevUserRole.findAll({
                 where: { userId: user.uuid },
                 include: [{
@@ -104,65 +87,92 @@ const login = async (req, res) => {
                     }]
                 }]
             });
-        } else if (user.deptId && user.CommonDept) {  // Check if department exists
-            try {
-                const deptModels = getExistingDepartmentModels(user.deptId, user.CommonDept.deptCode.toUpperCase()); // Ensure uppercase
-                permissions = await deptModels.DeptUserRole.findAll({
-                    where: { userId: user.uuid },
-                    include: [{
-                        model: deptModels.DeptRole,
-                        as: 'role',
-                        include: [{
-                            model: deptModels.DeptFeature,
-                            through: {
-                                model: deptModels.DeptRoleFeature,
-                                attributes: ['canRead', 'canWrite', 'canUpdate', 'canDelete']
-                            }
-                        }]
-                    }]
+        } else if (user.deptId && user.CommonDept) {
+            // **Department-Based Handling Using Raw SQL Query**
+            const deptId = user.deptId;
+            const deptCode = user.CommonDept.deptCode.toLowerCase();
+            const deptTablePrefix = `${deptId}_${deptCode}`;
+
+            // Build raw SQL query. Note: The dept feature table does not have a "description" column.
+            const deptQuery = `
+                SELECT ur.roleId, r.roleName, f.featureId, f.featureName, 
+                       rf.canRead, rf.canWrite, rf.canUpdate, rf.canDelete
+                FROM ${deptTablePrefix}_user_role ur
+                JOIN ${deptTablePrefix}_role r ON ur.roleId = r.roleId
+                JOIN ${deptTablePrefix}_role_feature rf ON r.roleId = rf.roleId
+                JOIN ${deptTablePrefix}_feature f ON rf.featureId = f.featureId
+                WHERE ur.userId = ?;
+            `;
+
+            // Execute raw query
+            const rawPermissions = await sequelize.query(deptQuery, {
+                replacements: [user.uuid],
+                type: sequelize.QueryTypes.SELECT
+            });
+
+            // Group raw rows by roleId
+            const roleMap = {};
+            rawPermissions.forEach(row => {
+                if (!roleMap[row.roleId]) {
+                    roleMap[row.roleId] = {
+                        roleId: row.roleId,
+                        roleName: row.roleName,
+                        features: []
+                    };
+                }
+                roleMap[row.roleId].features.push({
+                    id: row.featureId,
+                    name: row.featureName,
+                    description: '', // No description column in dept feature table
+                    permissions: {
+                        read: Boolean(row.canRead),
+                        write: Boolean(row.canWrite),
+                        update: Boolean(row.canUpdate),
+                        delete: Boolean(row.canDelete)
+                    }
                 });
-            } catch (modelError) {
-                console.error('Error fetching department models:', modelError);
-                throw new Error(`Department configuration not found for ${user.CommonDept.deptCode}`);
-            }
+            });
+            permissions = Object.values(roleMap);
         }
 
-        // Format permissions
-        const formattedPermissions = permissions.map(p => ({
-            roleId: p.role.roleId,
-            roleName: p.role.roleName,
-            features: p.role.DevFeatures || p.role.DeptFeatures ? 
-                (p.role.DevFeatures || p.role.DeptFeatures).map(f => ({
+        // **Format Permissions**
+        let formattedPermissions;
+        if (user.type === 'dev') {
+            formattedPermissions = permissions.map(p => ({
+                roleId: p.role.roleId,
+                roleName: p.role.roleName,
+                features: (p.role.DevFeatures || p.role.DeptFeatures)?.map(f => ({
                     id: f.featureId,
                     name: f.featureName,
-                    description: f.description,
+                    description: f.featureDescription || '',
                     permissions: {
                         read: f.DevRoleFeature?.canRead || f.DeptRoleFeature?.canRead || false,
                         write: f.DevRoleFeature?.canWrite || f.DeptRoleFeature?.canWrite || false,
                         update: f.DevRoleFeature?.canUpdate || f.DeptRoleFeature?.canUpdate || false,
                         delete: f.DevRoleFeature?.canDelete || f.DeptRoleFeature?.canDelete || false
                     }
-                })) : []
-        }));
+                })) || []
+            }));
+        } else {
+            // For dept users, the raw query already groups data by role.
+            formattedPermissions = permissions;
+        }
 
-        // Update last login
-        await user.update({ 
-            lastLogin: new Date(),
-            isFirstLogin: false
-        });
+        // **Update Last Login**
+        await user.update({ lastLogin: new Date(), isFirstLogin: false });
 
-        // Set refresh token in HTTP-only cookie
+        // **Set Refresh Token in HTTP-Only Cookie**
         res.cookie('refreshToken', tokens.refreshToken, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'strict',
-            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+            maxAge: 7 * 24 * 60 * 60 * 1000
         });
 
-        // Helper function to check permissions
+        // **Helper Function to Check Permissions**
         const hasPermission = (permissions, featureName, action) => {
-            return permissions.some(role => 
-                role.features.some(feature => 
+            return permissions.some(role =>
+                role.features.some(feature =>
                     feature.name === featureName && feature.permissions[action]
                 )
             );
@@ -200,13 +210,13 @@ const login = async (req, res) => {
         });
     } catch (error) {
         console.error('Login error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error during login',
-            error: error.message
-        });
+        res.status(500).json({ success: false, message: error.message });
     }
 };
+
+
+
+
 
 // Helper function to check permissions
 const hasPermission = (roles, featureName, action) => {
