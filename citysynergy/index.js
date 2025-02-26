@@ -10,11 +10,11 @@ const { initializeDevTables } = require('./utils/devInitializer');
 
 // Import routes
 const authRoutes = require('./routes/authRoutes');
-const departmentRoutes = require('./routes/departmentRoutes');
-const roleRoutes = require('./routes/roleRoutes');
 const userRoutes = require('./routes/userRoutes');
+const departmentRoutes = require('./routes/departmentRoutes');
 const passwordRoutes = require('./routes/passwordRoutes');
 const profileRoutes = require('./routes/profileRoutes');
+const roleRoutes = require('./routes/roleRoutes');
 
 const app = express();
 
@@ -28,11 +28,11 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/departments', departmentRoutes);
-app.use('/api/roles', roleRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/departments', departmentRoutes);
 app.use('/api/password', passwordRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/roles', roleRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -41,7 +41,7 @@ app.use((err, req, res, next) => {
         success: false,
         message: 'Something broke!',
         error: err.message
-    });
+    }); 
 });
 
 // Initialize database and start server
@@ -52,9 +52,6 @@ const startServer = async () => {
         
         // Store sequelize instance in app locals
         app.locals.sequelize = sequelize;
-
-        // Initialize dev tables after database is ready
-        await initializeDevTables(sequelize);
 
         // Import routes AFTER database initialization
         const authRoutes = require('./routes/authRoutes');

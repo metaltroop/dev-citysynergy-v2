@@ -20,11 +20,7 @@ module.exports = (sequelize) => {
         },
         deptHead: {
             type: DataTypes.STRING,
-            allowNull: true,
-            references: {
-                model: 'common_users',
-                key: 'uuid'
-            }
+            allowNull: true
         },
         isDeleted: {
             type: DataTypes.BOOLEAN,

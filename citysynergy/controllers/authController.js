@@ -24,7 +24,7 @@ const login = async (req, res) => {
     try {
         const { username, password } = req.body;
         const { sequelize } = req.app.locals;
-        const { CommonUsers, CommonDepts } = sequelize.models;
+        const { CommonUsers, CommonDepts, DevRoles, DevFeatures, DevRoleFeature, DevUserRole } = sequelize.models;
 
         // Find user
         const user = await CommonUsers.findOne({
@@ -53,13 +53,13 @@ const login = async (req, res) => {
         // Get user permissions
         let permissions = [];
         if (user.type === 'dev') {
-            const { DevRole, DevFeature, DevRoleFeature, DevUserRole } = sequelize.models;
             permissions = await DevUserRole.findAll({
                 where: { userId: user.uuid },
                 include: [{
-                    model: DevRole,
+                    model: DevRoles,
+                    as: 'role',
                     include: [{
-                        model: DevFeature,
+                        model: DevFeatures,
                         through: DevRoleFeature
                     }]
                 }]
@@ -67,19 +67,39 @@ const login = async (req, res) => {
         } else if (user.deptId) {
             const department = await CommonDepts.findByPk(user.deptId);
             if (department) {
-                const deptModels = getDepartmentModels(user.deptId, department.deptCode);
-                permissions = await deptModels.DeptUserRole.findAll({
+                const { DeptUserRole, DeptRole, DeptFeature, DeptRoleFeature } = 
+                    getDepartmentModels(department.deptId, department.deptCode);
+                
+                permissions = await DeptUserRole.findAll({
                     where: { userId: user.uuid },
                     include: [{
-                        model: deptModels.DeptRole,
+                        model: DeptRole,
+                        as: 'role',
                         include: [{
-                            model: deptModels.DeptFeature,
-                            through: deptModels.DeptRoleFeature
+                            model: DeptFeature,
+                            through: DeptRoleFeature
                         }]
                     }]
                 });
             }
         }
+
+        // Restructure permissions for easier frontend usage
+        const formattedPermissions = permissions.map(p => ({
+            roleId: p.role.roleId,
+            roleName: p.role.roleName,
+            features: p.role.DevFeatures.map(f => ({
+                id: f.featureId,
+                name: f.featureName,
+                description: f.featureDescription,
+                permissions: {
+                    read: f.DevRoleFeature.canRead,
+                    write: f.DevRoleFeature.canWrite,
+                    update: f.DevRoleFeature.canUpdate,
+                    delete: f.DevRoleFeature.canDelete
+                }
+            }))
+        }));
 
         // Update last login
         await user.update({ 
@@ -87,20 +107,40 @@ const login = async (req, res) => {
             isFirstLogin: false
         });
 
+        // Set refresh token in HTTP-only cookie
+        res.cookie('refreshToken', tokens.refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+        });
+
         res.status(200).json({
             success: true,
             data: {
                 user: {
-                    uuid: user.uuid,
+                    id: user.uuid,
                     username: user.username,
                     email: user.email,
                     type: user.type,
                     deptId: user.deptId,
-                    needsPasswordChange: user.needsPasswordChange,
-                    isFirstLogin: user.isFirstLogin
+                    state: {
+                        needsPasswordChange: user.needsPasswordChange,
+                        isFirstLogin: user.isFirstLogin
+                    }
                 },
-                permissions,
-                tokens
+                permissions: {
+                    roles: formattedPermissions,
+                    // Add computed permission helpers
+                    can: {
+                        manageUsers: hasPermission(formattedPermissions, 'Users Management', 'write'),
+                        manageDepartments: hasPermission(formattedPermissions, 'Department Management', 'write'),
+                        manageRoles: hasPermission(formattedPermissions, 'Role Management', 'write'),
+                        manageFeatures: hasPermission(formattedPermissions, 'Feature Management', 'write'),
+                        manageClashes: hasPermission(formattedPermissions, 'Clashes Management', 'write')
+                    }
+                },
+                accessToken: tokens.accessToken
             }
         });
     } catch (error) {
@@ -111,6 +151,15 @@ const login = async (req, res) => {
             error: error.message
         });
     }
+};
+
+// Helper function to check permissions
+const hasPermission = (roles, featureName, action) => {
+    return roles.some(role => 
+        role.features.some(feature => 
+            feature.name === featureName && feature.permissions[action]
+        )
+    );
 };
 
 const refreshToken = async (req, res) => {

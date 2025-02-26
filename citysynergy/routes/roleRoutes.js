@@ -1,7 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const roleController = require('../controllers/roleController');
-const { authorizeMiddleware } = require('../middleware/authorizeMiddleware');
+const authMiddleware = require('../middleware/authMiddleware');
+const authorizeMiddleware = require('../middleware/authorizeMiddleware');
+
+router.use(authMiddleware);
 
 router.post('/assign',
     authorizeMiddleware(['Role Management'], 'canWrite'),

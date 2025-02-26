@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const passwordController = require('../controllers/passwordController');
-const { authMiddleware } = require('../middleware/authMiddleware');
+const authMiddleware = require('../middleware/authMiddleware');
 
 /**
  * @swagger
@@ -31,7 +31,10 @@ const { authMiddleware } = require('../middleware/authMiddleware');
  *       401:
  *         description: Invalid current password
  */
-router.post('/change', authMiddleware, passwordController.changePassword);
+router.post('/change', 
+    authMiddleware,
+    passwordController.changePassword
+);
 
 /**
  * @swagger

@@ -7,13 +7,7 @@ const authorizeMiddleware = (requiredFeatures, requiredPermission) => {
         try {
             const { uuid, type, deptId } = req.user;
             const { sequelize } = req.app.locals;
-            const { 
-                DevRoles, 
-                DevFeatures, 
-                DevRoleFeatures, 
-                DevUserRoles, 
-                CommonDepts 
-            } = sequelize.models;
+            const { DevUserRole, DevRoles, DevFeatures, CommonDepts } = sequelize.models;
 
             // Validate required inputs
             if (!requiredFeatures?.length || !requiredPermission) {
@@ -25,12 +19,13 @@ const authorizeMiddleware = (requiredFeatures, requiredPermission) => {
 
             let hasPermission = false;
 
-            // Handle developer users
+            // Handle dev users
             if (type === 'dev') {
-                const userRoles = await DevUserRoles.findAll({
+                const userRoles = await DevUserRole.findAll({
                     where: { userId: uuid },
                     include: [{
                         model: DevRoles,
+                        as: 'role',
                         include: [{
                             model: DevFeatures,
                             through: {
@@ -47,9 +42,9 @@ const authorizeMiddleware = (requiredFeatures, requiredPermission) => {
                 });
 
                 hasPermission = userRoles.some(userRole => 
-                    userRole.DevRole.DevFeatures.length === requiredFeatures.length
+                    userRole.role.DevFeatures.length === requiredFeatures.length
                 );
-            } 
+            }
             // Handle department users
             else if (deptId) {
                 const department = await CommonDepts.findOne({
@@ -66,12 +61,13 @@ const authorizeMiddleware = (requiredFeatures, requiredPermission) => {
                     });
                 }
 
-                const deptModels = await getDepartmentModels(deptId, department.deptCode);
+                const deptModels = getDepartmentModels(deptId, department.deptCode);
                 
                 const userRoles = await deptModels.DeptUserRole.findAll({
                     where: { userId: uuid },
                     include: [{
                         model: deptModels.DeptRole,
+                        as: 'role',
                         include: [{
                             model: deptModels.DeptFeature,
                             through: {
@@ -111,6 +107,4 @@ const authorizeMiddleware = (requiredFeatures, requiredPermission) => {
     };
 };
 
-module.exports = {
-    authorizeMiddleware
-};
+module.exports = authorizeMiddleware;

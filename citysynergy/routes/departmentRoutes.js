@@ -3,7 +3,11 @@
 const express = require('express');
 const router = express.Router();
 const departmentController = require('../controllers/departmentController');
-const { authorizeMiddleware } = require('../middleware/authorizeMiddleware');
+const authMiddleware = require('../middleware/authMiddleware');
+const authorizeMiddleware = require('../middleware/authorizeMiddleware');
+
+// Apply authentication middleware to all routes
+router.use(authMiddleware);
 
 /**
  * @swagger

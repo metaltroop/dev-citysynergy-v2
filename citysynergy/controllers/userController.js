@@ -6,28 +6,50 @@ const bcrypt = require('bcrypt');
 const { generateCustomId, generateTempPassword, getDepartmentModels } = require('../utils/helpers');
 const { Op } = require('sequelize');
 
+// Helper function to format user data
+const formatUserData = (user, department = null) => ({
+    id: user.uuid,
+    username: user.username,
+    email: user.email,
+    type: user.type,
+    deptId: user.deptId,
+    department: department ? {
+        id: department.deptId,
+        name: department.deptName,
+        code: department.deptCode
+    } : null,
+    state: {
+        isFirstLogin: user.isFirstLogin,
+        needsPasswordChange: user.needsPasswordChange,
+        lastLogin: user.lastLogin
+    }
+});
+
 const createUser = async (req, res) => {
     try {
-        const { email, type = 'dept', deptId, roles } = req.body;
+        // Destructure username, email, type, deptId, and roles from the request body
+        const { username, email, type = 'dept', deptId, roles } = req.body;
         const { sequelize } = req.app.locals;
-        const { CommonUsers, CommonDepts } = sequelize.models;
+        const { CommonUsers, CommonDepts, DevUserRole, DevRoles } = sequelize.models;
 
         const result = await withTransaction(async (transaction) => {
             // Validate department if deptId is provided
             let department;
             if (deptId) {
-                department = await CommonDepts.findByPk(deptId);
+                department = await CommonDepts.findOne({
+                    where: { deptId, isDeleted: false }
+                });
                 if (!department) {
-                    throw new Error('Department not found');
+                    throw new Error('Department not found or inactive');
                 }
             }
 
             const tempPassword = generateTempPassword();
             const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
-            // Create user with email as username
+            // Create user
             const user = await CommonUsers.create({
-                username: email, // Using email as username
+                username,  // Use the username from the request body
                 password: hashedPassword,
                 email,
                 type,
@@ -39,36 +61,68 @@ const createUser = async (req, res) => {
             // Handle role assignments
             if (roles?.length > 0) {
                 if (type === 'dev') {
-                    await assignDevRoles(user.uuid, roles, transaction);
+                    // Validate dev roles exist
+                    const validRoles = await DevRoles.findAll({
+                        where: {
+                            roleId: { [Op.in]: roles },
+                            isDeleted: false
+                        }
+                    });
+
+                    if (validRoles.length !== roles.length) {
+                        throw new Error('One or more invalid roles specified');
+                    }
+
+                    // Assign dev roles
+                    await Promise.all(roles.map(roleId =>
+                        DevUserRole.create({
+                            userId: user.uuid,
+                            roleId
+                        }, { transaction })
+                    ));
                 } else if (deptId) {
-                    await assignDepartmentRoles(user.uuid, roles, deptId, department.deptCode, transaction);
+                    const { DeptUserRole, DeptRole } = getDepartmentModels(deptId, department.deptCode);
+                    
+                    // Validate department roles exist
+                    const validRoles = await DeptRole.findAll({
+                        where: {
+                            roleId: { [Op.in]: roles },
+                            isDeleted: false
+                        }
+                    });
+
+                    if (validRoles.length !== roles.length) {
+                        throw new Error('One or more invalid department roles specified');
+                    }
+
+                    // Assign department roles
+                    await Promise.all(roles.map(roleId =>
+                        DeptUserRole.create({
+                            userId: user.uuid,
+                            roleId
+                        }, { transaction })
+                    ));
                 }
             }
 
             return { user, tempPassword, department };
         });
 
-        // Handle email notifications based on type and deptId
+        // Send email notifications
         if (result.user.type === 'dev') {
             await emailService.sendDevUserEmail(result.user, result.tempPassword);
-        } else if (result.user.type === 'dept' && result.user.deptId) {
+        } else if (result.user.type === 'dept' && result.department) {
             await emailService.sendDepartmentUserEmail(
                 result.user,
                 result.tempPassword,
                 result.department
             );
         }
-        // No email for dept users without deptId (future department heads)
 
         res.status(201).json({
             success: true,
             message: 'User created successfully',
-            data: {
-                uuid: result.user.uuid,
-                email: result.user.email,
-                type: result.user.type,
-                deptId: result.user.deptId
-            }
+            data: formatUserData(result.user, result.department)
         });
     } catch (error) {
         console.error('Error creating user:', error);
@@ -192,21 +246,30 @@ const deleteUser = async (req, res) => {
 
 const getUsers = async (req, res) => {
     try {
+        const { type, deptId } = req.query;
         const { sequelize } = req.app.locals;
         const { CommonUsers, CommonDepts } = sequelize.models;
 
+        const whereClause = { isDeleted: false };
+        if (type) whereClause.type = type;
+        if (deptId) whereClause.deptId = deptId;
+
         const users = await CommonUsers.findAll({
-            where: { isDeleted: false },
+            where: whereClause,
             include: [{
                 model: CommonDepts,
-                attributes: ['deptId', 'deptName', 'deptCode']
+                attributes: ['deptId', 'deptName', 'deptCode'],
+                required: false
             }],
-            attributes: ['uuid', 'username', 'email', 'type', 'deptId']
+            attributes: [
+                'uuid', 'username', 'email', 'type', 'deptId',
+                'isFirstLogin', 'needsPasswordChange', 'lastLogin'
+            ]
         });
 
         res.status(200).json({
             success: true,
-            data: users
+            data: users.map(user => formatUserData(user, user.CommonDept))
         });
     } catch (error) {
         console.error('Error getting users:', error);
@@ -230,7 +293,10 @@ const getUser = async (req, res) => {
                 model: CommonDepts,
                 attributes: ['deptId', 'deptName', 'deptCode']
             }],
-            attributes: ['uuid', 'username', 'email', 'type', 'deptId']
+            attributes: [
+                'uuid', 'username', 'email', 'type', 'deptId',
+                'isFirstLogin', 'needsPasswordChange', 'lastLogin'
+            ]
         });
 
         if (!user) {
@@ -242,7 +308,7 @@ const getUser = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            data: user
+            data: formatUserData(user, user.CommonDept)
         });
     } catch (error) {
         console.error('Error getting user:', error);

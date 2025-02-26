@@ -17,16 +17,23 @@ const authMiddleware = async (req, res, next) => {
             });
         }
 
-        // Verify token
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        // Fixed: Use JWT_ACCESS_SECRET instead of JWT_SECRET
+        const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
         
-        // Get user
+        // Get user and verify existence
         const user = await CommonUsers.findOne({
             where: { 
                 uuid: decoded.uuid,
                 isDeleted: false
             }
         });
+
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                message: 'User not found or inactive'
+            });
+        }
 
         // Add user info to request
         req.user = {
@@ -45,6 +52,5 @@ const authMiddleware = async (req, res, next) => {
     }
 };
 
-module.exports = {
-    authMiddleware
-};
+// Export the middleware function directly
+module.exports = authMiddleware;
