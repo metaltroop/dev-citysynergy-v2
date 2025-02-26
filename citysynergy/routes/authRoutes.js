@@ -50,6 +50,10 @@ const authMiddleware = require('../middleware/authMiddleware');
  *         description: Invalid credentials
  */
 router.post('/login', authController.login);
+
+// OTP verification and password setting route
+router.post('/verify-otp', authController.verifyOtpAndSetNewPassword);
+
 router.post('/refresh-token', authController.refreshToken);
 
 // Protected routes

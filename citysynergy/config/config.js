@@ -18,12 +18,12 @@ module.exports = {
         refreshExpiry: process.env.JWT_REFRESH_EXPIRY || '7d'
     },
     email: {
-        host: process.env.EMAIL_HOST,
-        port: process.env.EMAIL_PORT,
-        secure: process.env.EMAIL_SECURE === 'true',
+        host: process.env.SMTP_HOST || 'smtp.gmail.com',
+        port: process.env.SMTP_PORT || 587,
+        secure: process.env.SMTP_SECURE === 'true',
         auth: {
-            user: process.env.EMAIL_USER,
-            pass: process.env.EMAIL_PASS
+            user: process.env.SMTP_USER,
+            pass: process.env.SMTP_PASS
         }
     }
 };

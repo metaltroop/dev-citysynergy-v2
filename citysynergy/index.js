@@ -69,6 +69,9 @@ const startServer = async () => {
         app.listen(PORT, () => {
             console.log(`Server running on port ${PORT}`);
         });
+
+        // After database initialization
+        global.app = app;  // Make app globally available
     } catch (error) {
         console.error('Failed to start server:', error);
         process.exit(1);

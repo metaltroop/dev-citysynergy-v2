@@ -27,30 +27,39 @@ const formatUserData = (user, department = null) => ({
 
 const createUser = async (req, res) => {
     try {
-        // Destructure username, email, type, deptId, and roles from the request body
         const { username, email, type = 'dept', deptId, roles } = req.body;
         const { sequelize } = req.app.locals;
         const { CommonUsers, CommonDepts, DevUserRole, DevRoles } = sequelize.models;
+
+        if (!username || !email) {
+            return res.status(400).json({
+                success: false,
+                message: 'Username and email are required'
+            });
+        }
 
         const result = await withTransaction(async (transaction) => {
             // Validate department if deptId is provided
             let department;
             if (deptId) {
                 department = await CommonDepts.findOne({
-                    where: { deptId, isDeleted: false }
+                    where: { deptId, isDeleted: false },
+                    transaction
                 });
                 if (!department) {
                     throw new Error('Department not found or inactive');
                 }
             }
 
+            // Generate temporary password for all new users
             const tempPassword = generateTempPassword();
             const hashedPassword = await bcrypt.hash(tempPassword, 10);
 
-            // Create user
+            // Create user with empty password field
             const user = await CommonUsers.create({
-                username,  // Use the username from the request body
-                password: hashedPassword,
+                username,
+                password: null,  // Initially null
+                tempPassword: hashedPassword,  // Store hashed temp password
                 email,
                 type,
                 deptId: deptId || null,
@@ -58,72 +67,25 @@ const createUser = async (req, res) => {
                 needsPasswordChange: true
             }, { transaction });
 
-            // Handle role assignments
-            if (roles?.length > 0) {
-                if (type === 'dev') {
-                    // Validate dev roles exist
-                    const validRoles = await DevRoles.findAll({
-                        where: {
-                            roleId: { [Op.in]: roles },
-                            isDeleted: false
-                        }
-                    });
-
-                    if (validRoles.length !== roles.length) {
-                        throw new Error('One or more invalid roles specified');
-                    }
-
-                    // Assign dev roles
-                    await Promise.all(roles.map(roleId =>
-                        DevUserRole.create({
-                            userId: user.uuid,
-                            roleId
-                        }, { transaction })
-                    ));
-                } else if (deptId) {
-                    const { DeptUserRole, DeptRole } = getDepartmentModels(deptId, department.deptCode);
-                    
-                    // Validate department roles exist
-                    const validRoles = await DeptRole.findAll({
-                        where: {
-                            roleId: { [Op.in]: roles },
-                            isDeleted: false
-                        }
-                    });
-
-                    if (validRoles.length !== roles.length) {
-                        throw new Error('One or more invalid department roles specified');
-                    }
-
-                    // Assign department roles
-                    await Promise.all(roles.map(roleId =>
-                        DeptUserRole.create({
-                            userId: user.uuid,
-                            roleId
-                        }, { transaction })
-                    ));
-                }
+            // Handle email notifications based on user type and department
+            if (type === 'dev') {
+                // Send email for dev users
+                await emailService.sendDevUserEmail(user, tempPassword);
+            } else if (deptId && department) {
+                // Send email only if user is assigned to a department
+                await emailService.sendDepartmentUserEmail(user, tempPassword, department);
             }
+            // No email sent if user is dept type without department
 
-            return { user, tempPassword, department };
+            return { user, department, tempPassword };
         });
-
-        // Send email notifications
-        if (result.user.type === 'dev') {
-            await emailService.sendDevUserEmail(result.user, result.tempPassword);
-        } else if (result.user.type === 'dept' && result.department) {
-            await emailService.sendDepartmentUserEmail(
-                result.user,
-                result.tempPassword,
-                result.department
-            );
-        }
 
         res.status(201).json({
             success: true,
             message: 'User created successfully',
             data: formatUserData(result.user, result.department)
         });
+
     } catch (error) {
         console.error('Error creating user:', error);
         res.status(500).json({
@@ -131,8 +93,8 @@ const createUser = async (req, res) => {
             message: 'Error creating user',
             error: error.message
         });
-    }
-};
+    } 
+}; 
 
 const listUsers = async (req, res) => {
     try {

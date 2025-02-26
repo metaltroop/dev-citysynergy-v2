@@ -164,7 +164,7 @@ const initializeDatabase = async () => {
         console.log('✓ All model associations set up successfully');
 
         // Sync tables in correct order
-        console.log('\nSynchronizing models with database...');
+        console.log('\nSynchronizing models with database...'); 
         
         // First, sync base tables without foreign keys
         console.log('Syncing base tables...');

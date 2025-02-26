@@ -12,10 +12,18 @@ const createDepartment = async (req, res) => {
         const { sequelize } = req.app.locals;
         const { CommonDepts, CommonUsers } = sequelize.models;
 
+        if (!deptName || !deptCode || !headUserId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Department name, code and head user ID are required'
+            });
+        }
+
         const result = await withTransaction(async (transaction) => {
             // Check if department code already exists
             const existingDept = await CommonDepts.findOne({
-                where: { deptCode, isDeleted: false }
+                where: { deptCode, isDeleted: false },
+                transaction
             });
 
             if (existingDept) {
@@ -29,21 +37,33 @@ const createDepartment = async (req, res) => {
                     type: 'dept',
                     deptId: null,
                     isDeleted: false
-                }
+                },
+                transaction
             });
 
             if (!existingUser) {
                 throw new Error('Invalid user selected for department head');
             }
 
-            // Step 1: Create department
+            // Generate temporary password BEFORE hashing
+            const tempPassword = generateTempPassword();
+            const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+            // Update user with hashed temporary password
+            await existingUser.update({
+                tempPassword: hashedPassword,  // Store hashed version
+                isFirstLogin: true, 
+                needsPasswordChange: true
+            }, { transaction });
+
+            // Create department
             const department = await CommonDepts.create({
                 deptName,
                 deptCode,
                 deptHead: headUserId
             }, { transaction });
 
-            // Step 2: Create department tables
+            // Create department tables
             const deptModels = createDepartmentModels(sequelize, department.deptId, deptCode);
             await Promise.all([
                 deptModels.DeptRole.sync({ transaction }),
@@ -52,15 +72,22 @@ const createDepartment = async (req, res) => {
                 deptModels.DeptUserRole.sync({ transaction })
             ]);
 
-            // Step 3: Initialize department tables
+            // Initialize department tables
             await initializeDepartmentTables(deptModels, transaction);
 
-            // Step 4: Update user with department ID
+            // Update user with department ID
             await existingUser.update({
                 deptId: department.deptId
             }, { transaction });
 
-            // Step 5: Assign department head role
+            // Send email with original temporary password
+            await emailService.sendDepartmentHeadCredentials(
+                existingUser,
+                tempPassword,  // Send original unhashed password
+                department
+            );
+
+            // Assign department head role
             const deptHeadRole = await deptModels.DeptRole.findOne({
                 where: { roleName: 'Department Head' },
                 transaction
@@ -71,30 +98,8 @@ const createDepartment = async (req, res) => {
                 roleId: deptHeadRole.roleId
             }, { transaction });
 
-            // Generate new temporary password for department head
-            const tempPassword = generateTempPassword();
-            const hashedPassword = await bcrypt.hash(tempPassword, 10);
-
-            // Update user's password
-            await existingUser.update({
-                password: hashedPassword,
-                needsPasswordChange: true,
-                isFirstLogin: true
-            }, { transaction });
-
-            return {
-                department,
-                headUser: existingUser,
-                tempPassword
-            };
+            return { department, headUser: existingUser };
         });
-
-        // Send email to department head with credentials and department info
-        await emailService.sendDepartmentHeadCredentials(
-            result.headUser,
-            result.tempPassword,
-            result.department
-        );
 
         res.status(201).json({
             success: true,
@@ -115,12 +120,6 @@ const createDepartment = async (req, res) => {
 
     } catch (error) {
         console.error('Error creating department:', error);
-        
-        // If tables were created, clean them up
-        if (error.department?.deptId && error.department?.deptCode) {
-            await cleanupDepartmentTables(error.department.deptId, error.department.deptCode);
-        }
-
         res.status(500).json({
             success: false,
             message: 'Error creating department',

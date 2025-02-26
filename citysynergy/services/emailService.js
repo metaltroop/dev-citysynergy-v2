@@ -7,7 +7,8 @@ const {
     getWelcomeDeptUserContent,
     getDepartmentHeadContent,
     getPasswordResetContent,
-    getRoleAssignmentContent
+    getRoleAssignmentContent,
+    getFirstLoginOTPContent
 } = require('../templates/emailTemplates');
 
 class EmailService {
@@ -69,6 +70,12 @@ class EmailService {
         const subject = 'City Synergy - Role Assignment Update';
         const content = getRoleAssignmentContent(user.email, roles, department);
         return this.sendEmail(user.email, subject, content);
+    }
+
+    async sendFirstLoginOTP(email, otp) {
+        const subject = 'City Synergy - First Login Verification';
+        const content = getFirstLoginOTPContent(email, otp);
+        return this.sendEmail(email, subject, content);
     }
 }
 

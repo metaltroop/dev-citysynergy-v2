@@ -139,11 +139,29 @@ const getRoleAssignmentContent = (email, roles, department = null) => `
         <p>&copy; ${new Date().getFullYear()} City Synergy</p>
     </div>`;
 
+const getFirstLoginOTPContent = (email, otp) => `
+    <div class="header">
+        <h2>First Login Verification</h2>
+    </div>
+    <div class="content">
+        <p>Hello,</p>
+        <p>To complete your first login and set up your account, please use the following OTP:</p>
+        <div style="text-align: center; padding: 20px; background: #f5f5f5; margin: 20px 0; border-radius: 5px;">
+            <h1 style="color: #003366; letter-spacing: 5px;">${otp}</h1>
+        </div>
+        <p>This OTP will expire in 10 minutes.</p>
+        <p>If you didn't request this, please contact your system administrator.</p>
+    </div>
+    <div class="footer">
+        <p>&copy; ${new Date().getFullYear()} City Synergy</p>
+    </div>`;
+
 module.exports = {
     getBaseTemplate,
     getWelcomeDevUserContent,
     getWelcomeDeptUserContent,
     getDepartmentHeadContent,
     getPasswordResetContent,
-    getRoleAssignmentContent
+    getRoleAssignmentContent,
+    getFirstLoginOTPContent
 }; 
