@@ -42,7 +42,7 @@ const authorizeMiddleware = (requiredFeatures, requiredPermission) => {
                 });
 
                 hasPermission = userRoles.some(userRole => 
-                    userRole.role.DevFeatures.length === requiredFeatures.length
+                    userRole.role && userRole.role.DevFeatures && userRole.role.DevFeatures.length === requiredFeatures.length
                 );
             }
             // Handle department users
@@ -84,7 +84,7 @@ const authorizeMiddleware = (requiredFeatures, requiredPermission) => {
                 });
 
                 hasPermission = userRoles.some(userRole => 
-                    userRole.role.DeptFeatures.length === requiredFeatures.length
+                    userRole.role && userRole.role.DeptFeatures && userRole.role.DeptFeatures.length === requiredFeatures.length
                 );
             }
 

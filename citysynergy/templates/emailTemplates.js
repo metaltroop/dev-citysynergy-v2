@@ -106,15 +106,18 @@ const getDepartmentHeadContent = (email, tempPassword, department) => `
         <p>&copy; ${new Date().getFullYear()} City Synergy</p>
     </div>`;
 
-const getPasswordResetContent = (email, resetLink) => `
+const getPasswordResetContent = (email, tempPassword) => `
     <div class="header">
         <h2>Password Reset Request</h2>
     </div>
     <div class="content">
         <p>Hello,</p>
         <p>We received a request to reset your password for your City Synergy account.</p>
-        <p>Click the button below to reset your password. This link will expire in 1 hour.</p>
-        <a href="${resetLink}" class="button">Reset Password</a>
+        <p>Your login credentials:</p>
+        <ul>
+            <li>Email: ${email}</li>
+            <li>Temporary Password: ${tempPassword}</li>
+        </ul>
         <p>If you didn't request this, you can safely ignore this email.</p>
     </div>
     <div class="footer">
@@ -156,6 +159,23 @@ const getFirstLoginOTPContent = (email, otp) => `
         <p>&copy; ${new Date().getFullYear()} City Synergy</p>
     </div>`;
 
+const getPasswordResetOTP = (email, otp) => `
+    <div class="header">
+        <h2>Password Reset Verification</h2>
+    </div>
+    <div class="content">
+        <p>Hello,</p>
+        <p>To reset your password, please use the following OTP:</p>
+        <div style="text-align: center; padding: 20px; background: #f5f5f5; margin: 20px 0; border-radius: 5px;">
+            <h1 style="color: #003366; letter-spacing: 5px;">${otp}</h1>
+        </div>
+        <p>This OTP will expire in 10 minutes.</p>
+        <p>If you didn't request this, please contact your system administrator.</p>
+    </div>
+    <div class="footer">
+        <p>&copy; ${new Date().getFullYear()} City Synergy</p>
+    </div>`;
+
 module.exports = {
     getBaseTemplate,
     getWelcomeDevUserContent,
@@ -163,5 +183,6 @@ module.exports = {
     getDepartmentHeadContent,
     getPasswordResetContent,
     getRoleAssignmentContent,
-    getFirstLoginOTPContent
+    getFirstLoginOTPContent,
+    getPasswordResetOTP
 }; 

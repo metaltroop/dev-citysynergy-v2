@@ -251,4 +251,11 @@ router.post(
     departmentController.assignFeaturesToRole
 );
 
+
+router.post(
+    '/get-dept-list',
+    authorizeMiddleware(['Department Management'], 'canRead'),
+    departmentController.getDeptList
+);
+
 module.exports = router;

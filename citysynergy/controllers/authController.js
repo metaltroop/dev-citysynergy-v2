@@ -6,7 +6,7 @@ const { getDepartmentModels, getExistingDepartmentModels } = require('../utils/d
 const { withTransaction, withOTPTransaction } = require('../utils/transactionManager');
 const { Op } = require('sequelize');
 const emailService = require('../services/emailService');
-const { createOtp } = require('../utils/helpers');
+const { createOtp ,generateTempPassword } = require('../utils/helpers');
 
 const generateTokens = (user) => {
     const accessToken = jwt.sign(
@@ -53,6 +53,23 @@ const login = async (req, res) => {
 
             const otpRecord = await createOtp(sequelize, user.uuid, 'FIRST_LOGIN');
             await emailService.sendFirstLoginOTP(user.email, otpRecord.otp);
+
+            return res.status(200).json({
+                success: true,
+                message: 'OTP sent to email',
+                data: { requiresOTP: true, email: user.email }
+            });
+        }
+
+        // **Password Reset Handling with OTP**
+        if (!user.isFirstLogin && user.needsPasswordChange) {
+            const isTempPasswordValid = await bcrypt.compare(password, user.tempPassword);
+            if (!isTempPasswordValid) {
+                return res.status(401).json({ success: false, message: 'Invalid credentials' });
+            }
+
+            const otpRecord = await createOtp(sequelize, user.uuid, 'PASSWORD_RESET');
+            await emailService.sendPasswordResetOTP(user.email, otpRecord.otp);
 
             return res.status(200).json({
                 success: true,
@@ -330,10 +347,10 @@ const verifyOtpAndSetNewPassword = async (req, res) => {
         }
 
         const { sequelize } = req.app.locals;
-        const { CommonUsers, OTP, DevUserRole, DevRoles, DevFeatures, DevRoleFeature } = sequelize.models;
+        const { CommonUsers, OTP } = sequelize.models;
 
         const user = await CommonUsers.findOne({
-            where: { email, isFirstLogin: true, needsPasswordChange: true }
+            where: { email, needsPasswordChange: true }
         });
 
         if (!user) {
@@ -374,92 +391,10 @@ const verifyOtpAndSetNewPassword = async (req, res) => {
         // Mark OTP as used
         await otpRecord.update({ isUsed: true });
 
-        // Fetch user permissions based on user type
-        let permissions = [];
-        if (user.type === 'dev') {
-            permissions = await DevUserRole.findAll({
-                where: { userId: user.uuid },
-                include: [{
-                    model: DevRoles,
-                    as: 'role',
-                    include: [{
-                        model: DevFeatures,
-                        through: {
-                            model: DevRoleFeature,
-                            attributes: ['canRead', 'canWrite', 'canUpdate', 'canDelete']
-                        }
-                    }]
-                }]
-            });
-        } else if (user.deptId) {
-            const department = await sequelize.models.CommonDepts.findByPk(user.deptId);
-            if (department) {
-                const deptModels = getDepartmentModels(user.deptId, department.deptCode);
-                permissions = await deptModels.DeptUserRole.findAll({
-                    where: { userId: user.uuid },
-                    include: [{
-                        model: deptModels.DeptRole,
-                        include: [{
-                            model: deptModels.DeptFeature,
-                            through: {
-                                model: deptModels.DeptRoleFeature,
-                                attributes: ['canRead', 'canWrite', 'canUpdate', 'canDelete']
-                            }
-                        }]
-                    }]
-                });
-            }
-        }
-
-        // Format permissions
-        const formattedPermissions = permissions.map(p => ({
-            roleId: p.role.roleId,
-            roleName: p.role.roleName,
-            features: p.role.DevFeatures || p.role.DeptFeatures ? 
-                (p.role.DevFeatures || p.role.DeptFeatures).map(f => ({
-                    id: f.featureId,
-                    name: f.featureName,
-                    description: f.description,
-                    permissions: {
-                        read: f.DevRoleFeature?.canRead || f.DeptRoleFeature?.canRead || false,
-                        write: f.DevRoleFeature?.canWrite || f.DeptRoleFeature?.canWrite || false,
-                        update: f.DevRoleFeature?.canUpdate || f.DeptRoleFeature?.canUpdate || false,
-                        delete: f.DevRoleFeature?.canDelete || f.DeptRoleFeature?.canDelete || false
-                    }
-                })) : []
-        }));
-
-        // Generate tokens as before...
-
+        // Simple success response
         res.status(200).json({
             success: true,
-            message: 'Password set successfully',
-            data: {
-                user: {
-                    id: user.uuid,
-                    email: user.email,
-                    type: user.type,
-                    deptId: user.deptId,
-                    state: {
-                        needsPasswordChange: false,
-                        isFirstLogin: false
-                    }
-                },
-                permissions: {
-                    roles: formattedPermissions,
-                    can: {
-                        manageUsers: hasPermission(formattedPermissions, 'User Management', 'write'),
-                        manageDepartments: hasPermission(formattedPermissions, 'Department Management', 'write'),
-                        manageRoles: hasPermission(formattedPermissions, 'Role Management', 'write'),
-                        manageFeatures: hasPermission(formattedPermissions, 'Feature Management', 'write'),
-                        manageInventory: hasPermission(formattedPermissions, 'Inventory Management', 'write'),
-                        manageIssues: hasPermission(formattedPermissions, 'Issue Management', 'write'),
-                        manageReports: hasPermission(formattedPermissions, 'Reports Management', 'write'),
-                        manageAttendance: hasPermission(formattedPermissions, 'Attendance Management', 'write'),
-                        manageTasks: hasPermission(formattedPermissions, 'Task Management', 'write')
-                    }
-                }
-            }
+            message: 'Password has been changed to the new password'
         });
     } catch (error) {
         console.error('Error setting password:', error);
@@ -471,9 +406,41 @@ const verifyOtpAndSetNewPassword = async (req, res) => {
     }
 };
 
+//function to reset pass and send otp this will delete the current password and generate a new  temp password and send otp to the user email 
+const resetPassword = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const { sequelize } = req.app.locals;
+        const { CommonUsers } = sequelize.models;
+        const user = await CommonUsers.findOne({ where: { uuid: userId, isDeleted: false } });
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+        const tempPassword = generateTempPassword();
+        const hashedPassword = await bcrypt.hash(tempPassword, 10);
+        await user.update({ tempPassword: hashedPassword, needsPasswordChange: true });
+        await emailService.sendPasswordResetEmail(user, tempPassword);
+        res.status(200).json({
+            success: true,
+            message: 'Password reset email sent successfully for user ' + user.email
+        });
+    } catch (error) {
+        console.error('Error resetting password:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error resetting password',
+            error: error.message
+        });
+    }
+}
+
 module.exports = {
     login,
     refreshToken,
     changePassword,
-    verifyOtpAndSetNewPassword
+    verifyOtpAndSetNewPassword,
+    resetPassword
 };

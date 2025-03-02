@@ -4,6 +4,7 @@ const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
 const authMiddleware = require('../middleware/authMiddleware');
+const authorizeMiddleware = require('../middleware/authorizeMiddleware');
 
 /**
  * @swagger
@@ -61,6 +62,13 @@ router.post(
     '/change-password',
     authMiddleware,
     authController.changePassword
+);
+
+router.post(
+    '/reset-password/:userId',
+    authMiddleware, // Ensure authMiddleware is applied first
+    authorizeMiddleware(['Users Management'], 'canUpdate'),
+    authController.resetPassword
 );
 
 module.exports = router;

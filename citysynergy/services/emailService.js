@@ -60,9 +60,9 @@ class EmailService {
         return this.sendEmail(user.email, subject, content);
     }
 
-    async sendPasswordResetEmail(user, resetLink) {
+    async sendPasswordResetEmail(user, tempPassword) {
         const subject = 'City Synergy - Password Reset Request';
-        const content = getPasswordResetContent(user.email, resetLink);
+        const content = getPasswordResetContent(user.email, tempPassword);
         return this.sendEmail(user.email, subject, content);
     }
 
@@ -75,6 +75,12 @@ class EmailService {
     async sendFirstLoginOTP(email, otp) {
         const subject = 'City Synergy - First Login Verification';
         const content = getFirstLoginOTPContent(email, otp);
+        return this.sendEmail(email, subject, content);
+    }
+
+    async sendPasswordResetOTP(email, otp) {
+        const subject = 'City Synergy - Password Reset Verification';
+        const content = getPasswordResetContent(email, otp);
         return this.sendEmail(email, subject, content);
     }
 }

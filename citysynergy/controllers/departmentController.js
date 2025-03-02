@@ -351,9 +351,34 @@ const getDepartments = async (req, res) => {
             where: { isDeleted: false },
             include: [{
                 model: CommonUsers,
-                as: 'head',
+                as: 'CommonUsers', // Ensure this matches the alias defined in the association
                 attributes: ['uuid', 'username', 'email']
             }],
+            attributes: ['deptId', 'deptName', 'deptCode', 'createdAt']
+        });
+
+        res.status(200).json({
+            success: true,
+            data: departments
+        });
+    } catch (error) {
+        console.error('Error getting departments:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error getting departments',
+            error: error.message
+        });
+    }
+};
+
+//function for fetching the list of the departments without its users 
+const getDeptList = async (req, res) => {
+    try {
+        const { sequelize } = req.app.locals;
+        const { CommonDepts } = sequelize.models;
+
+        const departments = await CommonDepts.findAll({
+            where: { isDeleted: false },
             attributes: ['deptId', 'deptName', 'deptCode', 'createdAt']
         });
 
@@ -414,5 +439,6 @@ module.exports = {
     createDepartmentRole,
     getDepartmentRoles,
     assignFeaturesToRole,
-    getDepartmentFeatures
+    getDepartmentFeatures,
+    getDeptList
 };
