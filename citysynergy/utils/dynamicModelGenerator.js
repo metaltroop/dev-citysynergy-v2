@@ -217,15 +217,21 @@ const initializeDepartmentTables = async (models, transaction) => {
             roleName: 'Department Head',
             description: 'Department Head with all permissions'
         },
+        //admin 
         {
-            roleId: 'ROLE_MANAGER',
-            roleName: 'Department Manager',
-            description: 'Department Manager with limited permissions'
+            roleId: 'ROLE_ADMIN',
+            roleName: 'Department Admin',
+            description: 'Department Admin with all permissions but the delete permission'
         },
         {
-            roleId: 'ROLE_SUPERVISOR',
-            roleName: 'Department Supervisor',
-            description: 'Supervisor with operational permissions'
+            roleId: 'ROLE_RELATIONSHIP_MANAGER',
+            roleName: 'Department Relationship Manager',
+            description: 'relation manager with issues and tenders , clashes  access only'
+        }, 
+        {
+            roleId: 'ROLE_RESOURCE_MANAGER',
+            roleName: 'Department Resource Manager',
+            description: 'resource manager with inventory access only'
         },
         {
             roleId: 'ROLE_STAFF',
@@ -241,15 +247,14 @@ const initializeDepartmentTables = async (models, transaction) => {
         { featureId: 'FEAT_ROLE_MGMT', featureName: 'Role Management' },
         { featureId: 'FEAT_INVENTORY', featureName: 'Inventory Management' },
         { featureId: 'FEAT_ISSUES', featureName: 'Issue Management' },
-        { featureId: 'FEAT_REPORTS', featureName: 'Reports Management' },
-        { featureId: 'FEAT_ATTENDANCE', featureName: 'Attendance Management' },
-        { featureId: 'FEAT_TASKS', featureName: 'Task Management' }
+        { featureId: 'FEAT_TENDERS', featureName: 'Tender Management' },
+        { featureId: 'FEAT_CLASHES', featureName: 'Clashes Management' }
+
     ], { transaction });
 
     // Define permission mappings for different roles
     const rolePermissions = {
         'ROLE_HEAD': {
-            // Head has full access to all features
             permissions: features.map(feature => ({
                 roleId: 'ROLE_HEAD',
                 featureId: feature.featureId,
@@ -259,10 +264,9 @@ const initializeDepartmentTables = async (models, transaction) => {
                 canDelete: true
             }))
         },
-        'ROLE_MANAGER': {
-            // Manager has full access except delete permissions
+        'ROLE_ADMIN': {
             permissions: features.map(feature => ({
-                roleId: 'ROLE_MANAGER',
+                roleId: 'ROLE_ADMIN',
                 featureId: feature.featureId,
                 canRead: true,
                 canWrite: true,
@@ -270,32 +274,27 @@ const initializeDepartmentTables = async (models, transaction) => {
                 canDelete: false
             }))
         },
-        'ROLE_SUPERVISOR': {
-            // Supervisor has limited permissions
-            permissions: features.map(feature => ({
-                roleId: 'ROLE_SUPERVISOR',
-                featureId: feature.featureId,
-                canRead: true,
-                canWrite: feature.featureId !== 'FEAT_DEPT_MGMT' && 
-                         feature.featureId !== 'FEAT_USER_MGMT' && 
-                         feature.featureId !== 'FEAT_ROLE_MGMT',
-                canUpdate: feature.featureId !== 'FEAT_DEPT_MGMT' && 
-                          feature.featureId !== 'FEAT_USER_MGMT' && 
-                          feature.featureId !== 'FEAT_ROLE_MGMT',
-                canDelete: false
-            }))
+        'ROLE_RELATIONSHIP_MANAGER': {
+            permissions: features.map(feature => {
+                const allowedFeatures = ['FEAT_CLASHES', 'FEAT_TENDERS', 'FEAT_ISSUES'];
+                return {
+                    roleId: 'ROLE_RELATIONSHIP_MANAGER',
+                    featureId: feature.featureId,
+                    canRead: allowedFeatures.includes(feature.featureId),
+                    canWrite: allowedFeatures.includes(feature.featureId),
+                    canUpdate: allowedFeatures.includes(feature.featureId),
+                    canDelete: allowedFeatures.includes(feature.featureId)
+                };
+            })
         },
-        'ROLE_STAFF': {
-            // Staff has basic read and write permissions for operational features
+        'ROLE_RESOURCE_MANAGER': {
             permissions: features.map(feature => ({
-                roleId: 'ROLE_STAFF',
+                roleId: 'ROLE_RESOURCE_MANAGER',
                 featureId: feature.featureId,
-                canRead: true,
-                canWrite: feature.featureId === 'FEAT_TASKS' || 
-                         feature.featureId === 'FEAT_ATTENDANCE',
-                canUpdate: feature.featureId === 'FEAT_TASKS' || 
-                          feature.featureId === 'FEAT_ATTENDANCE',
-                canDelete: false
+                canRead: feature.featureId === 'FEAT_INVENTORY',
+                canWrite: feature.featureId === 'FEAT_INVENTORY',
+                canUpdate: feature.featureId === 'FEAT_INVENTORY',
+                canDelete: feature.featureId === 'FEAT_INVENTORY'
             }))
         }
     };

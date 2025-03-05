@@ -3,6 +3,7 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
+const userController = require('../controllers/userController');
 const authMiddleware = require('../middleware/authMiddleware');
 const authorizeMiddleware = require('../middleware/authorizeMiddleware');
 
@@ -69,6 +70,14 @@ router.post(
     authMiddleware, // Ensure authMiddleware is applied first
     authorizeMiddleware(['Users Management'], 'canUpdate'),
     authController.resetPassword
+);
+
+// Soft delete user route
+router.put(
+    '/:uuid',
+    authMiddleware,
+    authorizeMiddleware(['Users Management'], 'canDelete'),
+    userController.deleteUser
 );
 
 module.exports = router;

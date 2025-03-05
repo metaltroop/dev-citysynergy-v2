@@ -11,9 +11,13 @@ router.post('/assign',
     roleController.assignRoles
 );
 
-router.get('/',
+router.get('/fetchdevroles',
+    roleController.getdevRoles
+);
+
+router.get('/fetchdeptrolesbydeptid/:deptId',
     authorizeMiddleware(['Role Management'], 'canRead'),
-    roleController.getRoles
+    roleController.getDeptRolesByDeptId
 );
 
 module.exports = router;

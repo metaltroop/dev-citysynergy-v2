@@ -213,50 +213,71 @@ const getUserRoles = async (req, res) => {
     }
 };
 
-const getRoles = async (req, res) => {
-    try {
-        const { type, deptId } = req.query;
-        const { sequelize } = req.app.locals;
-        const { DevRoles, CommonDepts } = sequelize.models;
+// const getRoles = async (req, res) => {
+//     try {
+//         const { type, deptId } = req.query;
+//         const { sequelize } = req.app.locals;
+//         const { DevRoles, CommonDepts } = sequelize.models;
 
-        if (type === 'dev') {
-            const roles = await DevRoles.findAll({
-                where: { isDeleted: false }
-            });
-            return res.status(200).json({
-                success: true,
-                data: roles
-            });
-        } 
+//         if (type === 'dev') {
+//             const roles = await DevRoles.findAll({
+//                 where: { isDeleted: false }
+//             });
+//             return res.status(200).json({
+//                 success: true,
+//                 data: roles
+//             });
+//         } 
         
-        if (deptId) {
-            const department = await CommonDepts.findOne({
-                where: { deptId, isDeleted: false }
-            });
+//         if (deptId) {
+//             const department = await CommonDepts.findOne({
+//                 where: { deptId, isDeleted: false }
+//             });
 
-            if (!department) {
-                return res.status(404).json({
-                    success: false,
-                    message: 'Department not found'
-                });
-            }
+//             if (!department) {
+//                 return res.status(404).json({
+//                     success: false,
+//                     message: 'Department not found'
+//                 });
+//             }
 
-            const deptModels = await getDepartmentModels(deptId, department.deptCode);
-            const roles = await deptModels.DeptRole.findAll({
-                where: { isDeleted: false }
-            });
+//             const deptModels = await getDepartmentModels(deptId, department.deptCode);
+//             const roles = await deptModels.DeptRole.findAll({
+//                 where: { isDeleted: false }
+//             });
 
-            return res.status(200).json({
-                success: true,
-                data: roles
-            });
-        }
+//             return res.status(200).json({
+//                 success: true,
+//                 data: roles
+//             });
+//         }
 
-        return res.status(400).json({
-            success: false,
-            message: 'Invalid query parameters'
+//         return res.status(400).json({
+//             success: false,
+//             message: 'Invalid query parameters'
+//         });
+
+//     } catch (error) {
+//         console.error('Error getting roles:', error);
+//         res.status(500).json({
+//             success: false,
+//             message: 'Error getting roles',
+//             error: error.message
+//         });
+//     }
+// };
+
+const getdevRoles = async (req, res) => {
+    try {
+        const { sequelize } = req.app.locals;
+        const { DevRoles } = sequelize.models;        
+        const roles = await DevRoles.findAll({
+            where: { isDeleted: false }
         });
-
+        return res.status(200).json({
+            success: true,
+            data: roles
+        });
     } catch (error) {
         console.error('Error getting roles:', error);
         res.status(500).json({
@@ -267,8 +288,48 @@ const getRoles = async (req, res) => {
     }
 };
 
+//fetch dept roles by deptId
+const getDeptRolesByDeptId = async (req, res) => {
+    try {
+        const { deptId } = req.params;
+        const { sequelize } = req.app.locals;
+        const { CommonDepts } = sequelize.models;
+
+        const department = await CommonDepts.findByPk(deptId);
+        if (!department) { 
+            return res.status(404).json({
+                success: false,
+                message: 'Department not found'
+            });
+        }
+
+        //fetch role from {prefix} using sql query prefix conssit of deptId and deptCode
+        const prefix = `${deptId}_${department.deptCode}`;
+        const roles = await sequelize.query(
+            `SELECT * FROM ${prefix}_role WHERE isDeleted = 0`,
+            { type: sequelize.QueryTypes.SELECT }
+        );
+
+        return res.status(200).json({
+            success: true,
+            message : 'Roles fetched successfully for ' + department.deptName,
+            data: roles
+        });
+    } catch (error) {
+        console.error('Error getting department roles:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error getting department roles',
+            error: error.message
+        });
+    }
+};
+
+        
 module.exports = {
     assignRoles,
     getUserRoles,
-    getRoles
+    // getRoles,
+    getdevRoles,
+    getDeptRolesByDeptId
 }; 

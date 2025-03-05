@@ -19,7 +19,44 @@ const roleRoutes = require('./routes/roleRoutes');
 const app = express();
 
 // Middleware
-app.use(cors());
+const allowedOrigins = ['http://localhost:5173', 'https://hoppscotch.io/'];
+
+
+const corsOptions = {
+    origin: function (origin, callback) {
+        if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+            callback(null, true);
+        } else {
+            callback(new Error('Not allowed by CORS'));
+        }
+    },// Update this to match your frontend URL
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['Content-Range', 'X-Content-Range']
+};
+
+// Add pre-flight handling
+app.options('*', cors(corsOptions));
+
+app.use(cors(corsOptions));
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    next();
+});
+
+app.use((err, req, res, next) => {
+    console.error('Error:', err);
+    res.status(err.status || 500).json({
+        success: false,
+        message: err.message || 'Internal Server Error',
+        error: process.env.NODE_ENV === 'development' ? err : {}
+    });
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -77,6 +114,12 @@ const startServer = async () => {
         process.exit(1);
     }
 };
+
+//get hellow from localhost:3000
+app.get('/', (req, res) => {
+    res.send('Hello World!');
+}
+);
 
 // Export for testing
 module.exports = app;
