@@ -8,7 +8,9 @@ const {
     getDepartmentHeadContent,
     getPasswordResetContent,
     getRoleAssignmentContent,
-    getFirstLoginOTPContent
+    getFirstLoginOTPContent,
+    getDepartmentDeletionNoticeContent,
+    getRoleRemovedNoticeContent
 } = require('../templates/emailTemplates');
 
 class EmailService {
@@ -82,6 +84,18 @@ class EmailService {
         const subject = 'City Synergy - Password Reset Verification';
         const content = getPasswordResetContent(email, otp);
         return this.sendEmail(email, subject, content);
+    }
+
+    async sendDepartmentDeletionNotice(user, departmentName) {
+        const subject = 'Important: Department Deletion Notice - City Synergy';
+        const content = getDepartmentDeletionNoticeContent(user.email, departmentName);
+        return this.sendEmail(user.email, subject, content);
+    }
+
+    async sendRoleRemovedNotice(user) {
+        const subject = 'Important: Role Access Revoked - City Synergy';
+        const content = getRoleRemovedNoticeContent(user.email);
+        return this.sendEmail(user.email, subject, content);
     }
 }
 

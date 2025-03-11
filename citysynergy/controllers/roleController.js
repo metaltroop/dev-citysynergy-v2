@@ -1,6 +1,7 @@
 const { withTransaction } = require('../utils/transactionManager');
-const { getDepartmentModels } = require('../utils/helpers');
+const { getDepartmentModels, generateCustomId } = require('../utils/helpers');
 const emailService = require('../services/emailService');
+const { Op } = require('sequelize');
 
 const assignRoles = async (req, res) => {
     try {
@@ -213,70 +214,41 @@ const getUserRoles = async (req, res) => {
     }
 };
 
-// const getRoles = async (req, res) => {
-//     try {
-//         const { type, deptId } = req.query;
-//         const { sequelize } = req.app.locals;
-//         const { DevRoles, CommonDepts } = sequelize.models;
-
-//         if (type === 'dev') {
-//             const roles = await DevRoles.findAll({
-//                 where: { isDeleted: false }
-//             });
-//             return res.status(200).json({
-//                 success: true,
-//                 data: roles
-//             });
-//         } 
-        
-//         if (deptId) {
-//             const department = await CommonDepts.findOne({
-//                 where: { deptId, isDeleted: false }
-//             });
-
-//             if (!department) {
-//                 return res.status(404).json({
-//                     success: false,
-//                     message: 'Department not found'
-//                 });
-//             }
-
-//             const deptModels = await getDepartmentModels(deptId, department.deptCode);
-//             const roles = await deptModels.DeptRole.findAll({
-//                 where: { isDeleted: false }
-//             });
-
-//             return res.status(200).json({
-//                 success: true,
-//                 data: roles
-//             });
-//         }
-
-//         return res.status(400).json({
-//             success: false,
-//             message: 'Invalid query parameters'
-//         });
-
-//     } catch (error) {
-//         console.error('Error getting roles:', error);
-//         res.status(500).json({
-//             success: false,
-//             message: 'Error getting roles',
-//             error: error.message
-//         });
-//     }
-// };
-
 const getdevRoles = async (req, res) => {
     try {
         const { sequelize } = req.app.locals;
-        const { DevRoles } = sequelize.models;        
+        const { DevRoles, DevFeatures, DevRoleFeature } = sequelize.models;        
+        
         const roles = await DevRoles.findAll({
-            where: { isDeleted: false }
+            where: { isDeleted: false },
+            include: [{
+                model: DevFeatures,
+                through: {
+                    model: DevRoleFeature,
+                    attributes: ['canRead', 'canWrite', 'canUpdate', 'canDelete']
+                },
+                attributes: ['featureId', 'featureName']
+            }]
         });
+
+        const formattedRoles = roles.map(role => ({
+            roleId: role.roleId,
+            roleName: role.roleName,
+            features: role.DevFeatures.map(feature => ({
+                featureId: feature.featureId,
+                featureName: feature.featureName,
+                permissions: {
+                    canRead: feature.DevRoleFeature.canRead,
+                    canWrite: feature.DevRoleFeature.canWrite,
+                    canUpdate: feature.DevRoleFeature.canUpdate,
+                    canDelete: feature.DevRoleFeature.canDelete
+                }
+            }))
+        }));
+
         return res.status(200).json({
             success: true,
-            data: roles
+            data: formattedRoles
         });
     } catch (error) {
         console.error('Error getting roles:', error);
@@ -288,6 +260,118 @@ const getdevRoles = async (req, res) => {
     }
 };
 
+const getDevRolePermissions = async (req, res) => {
+    try {
+        const { roleId } = req.params;
+        const { sequelize } = req.app.locals;
+        const { DevRoles, DevFeatures, DevRoleFeature } = sequelize.models;
+
+        const role = await DevRoles.findOne({
+            where: { roleId, isDeleted: false },
+            include: [{
+                model: DevFeatures,
+                through: {
+                    model: DevRoleFeature,
+                    attributes: ['canRead', 'canWrite', 'canUpdate', 'canDelete']
+                },
+                attributes: ['featureId', 'featureName']
+            }]
+        });
+
+        if (!role) {
+            return res.status(404).json({
+                success: false,
+                message: 'Role not found'
+            });
+        }
+
+        const permissions = role.DevFeatures.map(feature => ({
+            featureId: feature.featureId,
+            featureName: feature.featureName,
+            permissions: {
+                canRead: feature.DevRoleFeature.canRead,
+                canWrite: feature.DevRoleFeature.canWrite,
+                canUpdate: feature.DevRoleFeature.canUpdate,
+                canDelete: feature.DevRoleFeature.canDelete
+            }
+        }));
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                roleId: role.roleId,
+                roleName: role.roleName,
+                features: permissions
+            }
+        });
+    } catch (error) {
+        console.error('Error getting role permissions:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error getting role permissions',
+            error: error.message
+        });
+    }
+};
+
+const updateDevRolePermissions = async (req, res) => {
+    try {
+        const { roleId } = req.params;
+        const { permissions } = req.body;
+        const { sequelize } = req.app.locals;
+        const { DevRoles, DevRoleFeature } = sequelize.models;
+
+        const result = await withTransaction(async (transaction) => {
+            // Verify role exists
+            const role = await DevRoles.findOne({
+                where: { roleId, isDeleted: false },
+                transaction
+            });
+
+            if (!role) {
+                throw new Error('Role not found');
+            }
+
+            // Update permissions
+            await Promise.all(permissions.map(async (perm) => {
+                await DevRoleFeature.update(
+                    {
+                        canRead: perm.canRead,
+                        canWrite: perm.canWrite,
+                        canUpdate: perm.canUpdate,
+                        canDelete: perm.canDelete
+                    },
+                    {
+                        where: {
+                            roleId: roleId,
+                            featureId: perm.featureId
+                        },
+                        transaction
+                    }
+                );
+            }));
+
+            return role;
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Permissions updated successfully',
+            data: {
+                roleId: result.roleId,
+                roleName: result.roleName
+            }
+        });
+
+    } catch (error) {
+        console.error('Error updating role permissions:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error updating role permissions',
+            error: error.message
+        });
+    }
+};
 //fetch dept roles by deptId
 const getDeptRolesByDeptId = async (req, res) => {
     try {
@@ -325,11 +409,200 @@ const getDeptRolesByDeptId = async (req, res) => {
     }
 };
 
-        
+const deleteDevRole = async (req, res) => {
+    try {
+        const { roleId } = req.params;
+        const { sequelize } = req.app.locals;
+        const { DevRoles, DevUserRole, CommonUsers } = sequelize.models;
+
+        const result = await withTransaction(async (transaction) => {
+            // Find role and check if exists
+            const role = await DevRoles.findOne({
+                where: { roleId, isDeleted: false },
+                transaction
+            });
+
+            if (!role) {
+                throw new Error('Role not found or already deleted');
+            }
+
+            // Find all users with this role
+            const usersWithRole = await DevUserRole.findAll({
+                where: { roleId },
+                include: [{
+                    model: CommonUsers,
+                    as: 'CommonUser',  // Match the alias defined in association
+                    attributes: ['uuid', 'email', 'username']
+                }],
+                transaction
+            });
+
+            // Process each user
+            await Promise.all(usersWithRole.map(async (userRole) => {
+                const user = userRole.CommonUser; // Changed from userRole.CommonUsers
+
+                // Check if user has other roles
+                const otherRoles = await DevUserRole.count({
+                    where: {
+                        userId: user.uuid,
+                        roleId: { [Op.ne]: roleId }
+                    },
+                    transaction
+                });
+
+                // If no other roles, reset user's password and send notification
+                if (otherRoles === 0) {
+                    await CommonUsers.update({
+                        password: null,
+                        tempPassword: null,
+                        needsPasswordChange: true
+                    }, {
+                        where: { uuid: user.uuid },
+                        transaction
+                    });
+
+                    // Send email notification
+                    await emailService.sendRoleRemovedNotice(user)
+                        .catch(err => console.error(`Failed to send email to ${user.email}:`, err));
+                }
+            }));
+
+            // Remove all role assignments
+            await DevUserRole.destroy({
+                where: { roleId },
+                transaction
+            });
+
+            // Soft delete the role
+            await role.update({ isDeleted: true }, { transaction });
+
+            return {
+                role,
+                affectedUsers: usersWithRole.length
+            };
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Role deleted successfully',
+            data: {
+                roleId: result.role.roleId,
+                roleName: result.role.roleName,
+                usersAffected: result.affectedUsers
+            }
+        });
+
+    } catch (error) {
+        console.error('Error deleting role:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error deleting role',
+            error: error.message
+        });
+    }
+};
+
+
+const createDevRole = async (req, res) => {
+    try {
+        const { roleName, roleDescription } = req.body;
+        const { sequelize } = req.app.locals;
+        const { DevRoles, DevFeatures, DevRoleFeature } = sequelize.models;
+
+        if (!roleName) {
+            return res.status(400).json({
+                success: false,
+                message: 'Role name is required'
+            });
+        }
+
+        const result = await withTransaction(async (transaction) => {
+            // Check if role name already exists
+            const existingRole = await DevRoles.findOne({
+                where: { 
+                    roleName,
+                    isDeleted: false 
+                },
+                transaction
+            });
+
+            if (existingRole) {
+                throw new Error('Role name already exists');
+            }
+
+            // Find highest existing roleId number including deleted roles
+            const lastRole = await DevRoles.findOne({
+                order: [['roleId', 'DESC']], // Order by roleId instead of createdAt
+                paranoid: false, // Include soft-deleted records
+                transaction
+            });
+
+            let nextNumber = 1;
+            if (lastRole) {
+                const lastNumber = parseInt(lastRole.roleId.slice(-3));
+                nextNumber = lastNumber + 1;
+            }
+
+            const roleId = `DROL${String(nextNumber).padStart(3, '0')}`;
+
+            // Create new role
+            const role = await DevRoles.create({
+                roleId,
+                roleName,
+                roleDescription: roleDescription || null,
+                isDeleted: false
+            }, { transaction });
+
+            // Get all features
+            const features = await DevFeatures.findAll({
+                where: { isDeleted: false },
+                transaction
+            });
+
+            // Create role-feature mappings with all permissions set to false
+            const roleFeatures = features.map(feature => ({
+                roleId: role.roleId,
+                featureId: feature.featureId,
+                canRead: false,
+                canWrite: false,
+                canUpdate: false,
+                canDelete: false
+            }));
+
+            await DevRoleFeature.bulkCreate(roleFeatures, { transaction });
+
+            return role;
+        });
+
+        res.status(201).json({
+            success: true,
+            message: 'Role created successfully',
+            data: {
+                roleId: result.roleId,
+                roleName: result.roleName,
+                roleDescription: result.roleDescription
+            }
+        });
+
+    } catch (error) {
+        console.error('Error creating role:', error);
+        res.status(error.message.includes('already exists') ? 409 : 500).json({
+            success: false,
+            message: 'Error creating role',
+            error: error.message
+        });
+    }
+};
+
+// Add to module.exports
 module.exports = {
     assignRoles,
     getUserRoles,
     // getRoles,
     getdevRoles,
-    getDeptRolesByDeptId
-}; 
+    getDeptRolesByDeptId,
+    getDevRolePermissions,
+    updateDevRolePermissions,
+    deleteDevRole,
+    createDevRole
+};

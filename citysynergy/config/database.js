@@ -134,6 +134,12 @@ const initializeDatabase = async () => {
             sourceKey: 'deptId'
         });
 
+        
+        CommonDepts.belongsTo(CommonUsers, {
+             foreignKey: 'deptHead',
+             as: 'DeptHead'
+            });
+
         // Tender associations
         Tender.belongsTo(CommonDepts, {
             foreignKey: 'deptId',
@@ -159,6 +165,18 @@ const initializeDatabase = async () => {
         InventoryRequest.belongsTo(CommonDepts, {
             foreignKey: 'deptId',
             targetKey: 'deptId'
+        });
+
+        // Dev user role associations
+        DevUserRole.belongsTo(CommonUsers, {
+            foreignKey: 'userId',
+            targetKey: 'uuid',
+            as: 'CommonUser'
+        });
+
+        CommonUsers.hasMany(DevUserRole, {
+            foreignKey: 'userId',
+            sourceKey: 'uuid'
         });
 
         console.log('✓ All model associations set up successfully');

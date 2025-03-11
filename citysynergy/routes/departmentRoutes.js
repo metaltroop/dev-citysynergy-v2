@@ -66,6 +66,11 @@ router.post(
     departmentController.createDepartment
 );
 
+router.put('/editDeptName/:deptId',
+    authorizeMiddleware(['Department Management'], 'canUpdate'),
+    departmentController.editDeptName
+)
+
 /**
  * @swagger
  * /api/departments/{deptId}:
@@ -256,6 +261,26 @@ router.post(
     '/get-dept-list',
     authorizeMiddleware(['Department Management'], 'canRead'),
     departmentController.getDeptList
+);
+
+router.put( '/delete-dept/:deptId',
+    authorizeMiddleware(['Department Management'], 'canDelete'),
+    departmentController.deleteDepartment
+);
+
+router.put('/restore-dept/:deptId',
+    authorizeMiddleware(['Department Management'], 'canUpdate'),
+    departmentController.restoreDept
+);  
+
+router.get('/get-dept/:deptId',
+    authorizeMiddleware(['Department Management'], 'canRead'),
+    departmentController.getDepartmentInfo
+);
+
+router.post('/checkdeptcode/:deptCode',
+    authorizeMiddleware(['Department Management'], 'canRead'),
+    departmentController.checkDeptCodeAvailablity
 );
 
 module.exports = router;

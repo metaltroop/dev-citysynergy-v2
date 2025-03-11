@@ -176,6 +176,45 @@ const getPasswordResetOTP = (email, otp) => `
         <p>&copy; ${new Date().getFullYear()} City Synergy</p>
     </div>`;
 
+const getDepartmentDeletionNoticeContent = (email, departmentName) => `
+    <div class="header">
+        <h2>Department Deletion Notice</h2>
+    </div>
+    <div class="content">
+        <p>Hello,</p>
+        <p>This is to inform you that the department "${departmentName}" has been deleted from the City Synergy system.</p>
+        <p>As a result:</p>
+        <ul>
+            <li>Your access to the system has been revoked</li>
+            <li>Your account has been removed</li>
+            <li>All your associated department roles have been removed</li>
+        </ul>
+        <p>Please contact your administrator for further updates.</p>
+    </div>
+    <div class="footer">
+        <p>&copy; ${new Date().getFullYear()} City Synergy</p>
+    </div>`;
+
+const getRoleRemovedNoticeContent = (email) => `
+    <div class="header">
+        <h2>Role Access Revoked</h2>
+    </div>
+    <div class="content">
+        <p>Hello,</p>
+        <p>This is to inform you that your role(s) in the City Synergy system have been removed.</p>
+        <p>As a result:</p>
+        <ul>
+            <li>Your access to the system has been temporarily suspended</li>
+            <li>Your password has been reset</li>
+            <li>You will not be able to login until new role(s) are assigned</li>
+        </ul>
+        <p>Once you are assigned new role(s), you will receive a new temporary password.</p>
+        <p>Please contact your administrator for further updates.</p>
+    </div>
+    <div class="footer">
+        <p>&copy; ${new Date().getFullYear()} City Synergy</p>
+    </div>`;
+
 module.exports = {
     getBaseTemplate,
     getWelcomeDevUserContent,
@@ -184,5 +223,7 @@ module.exports = {
     getPasswordResetContent,
     getRoleAssignmentContent,
     getFirstLoginOTPContent,
-    getPasswordResetOTP
-}; 
+    getPasswordResetOTP,
+    getDepartmentDeletionNoticeContent,
+    getRoleRemovedNoticeContent
+};

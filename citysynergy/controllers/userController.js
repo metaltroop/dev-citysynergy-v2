@@ -306,6 +306,7 @@ const getUsers = async (req, res) => {
             where: whereClause,
             include: [{
                 model: CommonDepts,
+                where: { isDeleted: false }, // Add this condition
                 attributes: ['deptId', 'deptName', 'deptCode'],
                 required: false
             }],
@@ -319,14 +320,14 @@ const getUsers = async (req, res) => {
         const processedUsers = await Promise.all(users.map(async (user) => {
             let roles = [];
             
+            // Only process department roles if department exists and is not deleted
             if (user.type === 'dev') {
-                // Fetch roles with names for dev users
                 const devRoles = await DevUserRole.findAll({
                     where: { userId: user.uuid },
                     include: [{
                         model: DevRoles,
                         as: 'role',
-                        attributes: ['roleId', 'roleName'] // Include roleName
+                        attributes: ['roleId', 'roleName']
                     }],
                     attributes: ['roleId']
                 });
@@ -335,11 +336,9 @@ const getUsers = async (req, res) => {
                     name: role.role?.roleName || 'Unknown Role'
                 }));
             } else if (user.deptId && user.CommonDept) {
-                // For department users, construct the dynamic table names
                 const userRoleTableName = `${user.deptId}_${user.CommonDept.deptCode}_user_role`;
                 const roleTableName = `${user.deptId}_${user.CommonDept.deptCode}_role`;
                 
-                // Fetch roles with names using JOIN
                 const roleResults = await sequelize.query(
                     `SELECT ur.roleId, r.roleName
                      FROM \`${userRoleTableName}\` ur
@@ -380,6 +379,7 @@ const getUsers = async (req, res) => {
         });
     }
 };
+
 const getUser = async (req, res) => {
     try {
         const { uuid } = req.params;
@@ -505,6 +505,57 @@ const checkEmailAvailability = async (req, res) => {
     }
 };
 
+const getUnassignedUsers = async (req, res) => {
+    try {
+        const { search } = req.query;
+        const { sequelize } = req.app.locals;
+        const { CommonUsers } = sequelize.models;
+        
+        const whereClause = {
+            type: 'dept',
+            deptId: null,
+            isDeleted: false
+        };
+
+        if (search) {
+            whereClause[Op.or] = [
+                { username: { [Op.like]: `%${search}%` } },
+                { email: { [Op.like]: `%${search}%` } }
+            ];
+        }
+
+        const users = await CommonUsers.findAll({
+            where: whereClause,
+            attributes: ['uuid', 'username', 'email'],
+            limit: 10
+        });
+
+        if (users.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'No unassigned users found'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            data: users.map(user => ({
+                id: user.uuid,
+                username: user.username,
+                email: user.email
+            }))
+        });
+
+    } catch (error) {
+        console.error('Error getting unassigned users:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error getting unassigned users',
+            error: error.message
+        });
+    }
+};
+
 
 
 
@@ -516,5 +567,6 @@ module.exports = {
     getUsers,
     checkEmailAvailability,
     checkUsernameAvailability,
-    getUser
+    getUser,
+    getUnassignedUsers
 };

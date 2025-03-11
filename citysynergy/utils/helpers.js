@@ -18,7 +18,7 @@ const generateCustomId = async (model, prefix, field = 'id') => {
 const generateTempPassword = () => {
     const length = 8;
     const uppercase = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    const lowercase = "abcdefghijklmnopqrstuvwxyz";
+    const lowercase = "abcdefghijkmnopqrstuvwxyz";
     const numbers = "0123456789";
     
     // Ensure at least one of each type

@@ -19,6 +19,20 @@ const createDepartment = async (req, res) => {
             });
         }
 
+        // Check if department code exists (including soft-deleted departments)
+        const existingDept = await CommonDepts.findOne({
+            where: { deptCode },
+            paranoid: false // This will include soft-deleted records
+        });
+
+        if (existingDept) {
+            return res.status(409).json({
+                success: false,
+                message: 'Department code already exists',
+                error: `The department code '${deptCode}' is already in use${existingDept.isDeleted ? ' (by a deleted department)' : ''}. Please use a different code.`
+            });
+        }
+
         const result = await withTransaction(async (transaction) => {
             // Check if department code already exists
             const existingDept = await CommonDepts.findOne({
@@ -351,15 +365,40 @@ const getDepartments = async (req, res) => {
             where: { isDeleted: false },
             include: [{
                 model: CommonUsers,
-                as: 'CommonUsers', // Ensure this matches the alias defined in the association
-                attributes: ['uuid', 'username', 'email']
+                as: 'DeptHead',
+                attributes: ['uuid', 'username', 'email'],
+                required: false
             }],
             attributes: ['deptId', 'deptName', 'deptCode', 'createdAt']
         });
 
+        // Get all users for each department in a separate query
+        const formattedDepartments = await Promise.all(departments.map(async (dept) => {
+            const users = await CommonUsers.findAll({
+                where: { 
+                    deptId: dept.deptId,
+                    isDeleted: false 
+                },
+                attributes: ['uuid', 'username', 'email']
+            });
+
+            return {
+                deptId: dept.deptId,
+                deptName: dept.deptName,
+                deptCode: dept.deptCode,
+                createdAt: dept.createdAt,
+                users: users,
+                deptHead: dept.DeptHead ? {
+                    id: dept.DeptHead.uuid,
+                    username: dept.DeptHead.username,
+                    email: dept.DeptHead.email
+                } : null
+            };
+        }));
+
         res.status(200).json({
             success: true,
-            data: departments
+            data: formattedDepartments
         });
     } catch (error) {
         console.error('Error getting departments:', error);
@@ -432,6 +471,310 @@ const updateDepartment = async (req, res) => {
     }
 };
 
+//soft delete department
+const deleteDepartment = async (req, res) => {
+    try {
+        const { deptId } = req.params;
+        const { sequelize } = req.app.locals;
+        const { CommonDepts, CommonUsers } = sequelize.models;
+
+        const result = await withTransaction(async (transaction) => {
+            // Find department
+            const department = await CommonDepts.findByPk(deptId, { transaction });
+            if (!department) {
+                throw new Error('Department not found');
+            }
+
+            // Find all users in the department
+            const departmentUsers = await CommonUsers.findAll({
+                where: { 
+                    deptId: deptId,
+                    isDeleted: false 
+                },
+                transaction
+            });
+
+            // Send emails to all users
+            const emailPromises = departmentUsers.map(user => 
+                emailService.sendDepartmentDeletionNotice(user, department.deptName)
+                    .catch(error => {
+                        console.error(`Failed to send email to ${user.email}:`, error);
+                        // Continue with deletion even if email fails
+                        return null;
+                    })
+            );
+
+            // Wait for all emails to be sent
+            await Promise.all(emailPromises);
+
+            // Delete all users from the department (hard delete)
+            await CommonUsers.destroy({
+                where: { 
+                    deptId: deptId,
+                    isDeleted: false 
+                },
+                force: true, // This ensures hard delete
+                transaction
+            });
+
+            // Soft delete the department
+            await department.update({ 
+                isDeleted: true 
+            }, { transaction });
+
+            return {
+                department,
+                usersDeleted: departmentUsers.length
+            };
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Department and associated users deleted successfully',
+            data: {
+                departmentName: result.department.deptName,
+                usersDeleted: result.usersDeleted
+            }
+        });
+
+    } catch (error) {
+        console.error('Error deleting department:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error deleting department',
+            error: error.message
+        });
+    }
+};
+
+const restoreDept = async (req, res) => {
+    try {
+        const { deptId } = req.params;
+        const { sequelize } = req.app.locals;
+        const { CommonDepts } = sequelize.models;
+
+        const department = await CommonDepts.findByPk(deptId);
+        if (!department) {
+            return res.status(404).json({
+                success: false,
+                message: 'Department not found'
+            });
+        }
+
+        await department.update({ isDeleted: false });
+
+        res.status(200).json({
+            success: true,
+            message: 'Department restored successfully'
+        });
+    }
+    catch (error) {
+        console.error('Error restoring department:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error restoring department',
+            error: error.message
+        });
+    }
+}
+
+//function for get dept info from common dept table and users  from common users with thier roles and features from {prefix }_user_roles table
+const getDepartmentInfo = async (req, res) => {
+    try {
+        const { deptId } = req.params;
+        const { sequelize } = req.app.locals;
+        const { CommonDepts, CommonUsers } = sequelize.models;
+
+        // Get department info with department head
+        const department = await CommonDepts.findOne({
+            where: { 
+                deptId,
+                isDeleted: false 
+            },
+            include: [{
+                model: CommonUsers,
+                as: 'DeptHead',
+                attributes: ['uuid', 'username', 'email'],
+                required: false
+            }],
+            attributes: ['deptId', 'deptName', 'deptCode', 'createdAt']
+        });
+
+        if (!department) {
+            return res.status(404).json({
+                success: false,
+                message: 'Department not found'
+            });
+        }
+
+        // Get all users in the department
+        const users = await CommonUsers.findAll({
+            where: { 
+                deptId,
+                isDeleted: false 
+            },
+            attributes: ['uuid', 'username', 'email']
+        });
+
+        // Get users with their roles and features using raw queries
+        const prefix = `${deptId}_${department.deptCode}`;
+        const userRolesQuery = `
+            SELECT 
+                cu.uuid, cu.username, cu.email,
+                r.roleId, r.roleName,
+                f.featureId, f.featureName,
+                rf.canRead, rf.canWrite, rf.canUpdate, rf.canDelete
+            FROM common_users cu
+            LEFT JOIN \`${prefix}_user_role\` ur ON cu.uuid = ur.userId
+            LEFT JOIN \`${prefix}_role\` r ON ur.roleId = r.roleId
+            LEFT JOIN \`${prefix}_role_feature\` rf ON r.roleId = rf.roleId
+            LEFT JOIN \`${prefix}_feature\` f ON rf.featureId = f.featureId
+            WHERE cu.deptId = :deptId AND cu.isDeleted = false
+        `;
+
+        const usersWithRoles = await sequelize.query(userRolesQuery, {
+            replacements: { deptId },
+            type: sequelize.QueryTypes.SELECT
+        });
+
+        // Process and format the results
+        const processedUsers = users.map(user => {
+            const userRoles = usersWithRoles
+                .filter(ur => ur.uuid === user.uuid)
+                .reduce((acc, ur) => {
+                    if (!ur.roleId) return acc;
+
+                    // Group by role
+                    if (!acc[ur.roleId]) {
+                        acc[ur.roleId] = {
+                            roleId: ur.roleId,
+                            roleName: ur.roleName,
+                            features: []
+                        };
+                    }
+
+                    // Add feature to role if it exists
+                    if (ur.featureId) {
+                        acc[ur.roleId].features.push({
+                            featureId: ur.featureId,
+                            featureName: ur.featureName,
+                            permissions: {
+                                canRead: ur.canRead,
+                                canWrite: ur.canWrite,
+                                canUpdate: ur.canUpdate,
+                                canDelete: ur.canDelete
+                            }
+                        });
+                    }
+
+                    return acc;
+                }, {});
+
+            return {
+                uuid: user.uuid,
+                username: user.username,
+                email: user.email,
+                roles: Object.values(userRoles)
+            };
+        });
+
+        res.status(200).json({
+            success: true,
+            data: {
+                department: {
+                    deptId: department.deptId,
+                    deptName: department.deptName,
+                    deptCode: department.deptCode,
+                    createdAt: department.createdAt,
+                    deptHead: department.DeptHead ? {
+                        id: department.DeptHead.uuid,
+                        username: department.DeptHead.username,
+                        email: department.DeptHead.email
+                    } : null
+                },
+                users: processedUsers
+            }
+        });
+
+    } catch (error) {
+        console.error('Error getting department info:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error getting department info',
+            error: error.message
+        });
+    }
+};
+
+
+//check if dept code is available 
+const checkDeptCodeAvailablity = async (req, res) => {
+    try {
+        const { deptCode } = req.params;
+        const { sequelize } = req.app.locals;
+        const { CommonDepts } = sequelize.models;
+
+        const department = await CommonDepts.findOne({
+            where: { 
+                deptCode
+            }
+        });
+
+        res.status(200).json({
+            success: true,
+            data: {
+                isAvailable: !department
+            }
+        });
+    }
+    catch (error) {
+        console.error('Error checking department code availability:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error checking department code availability',
+            error: error.message
+        });
+    }
+}
+
+const editDeptName = async (req, res) => {
+    try {
+        const { deptId } = req.params;
+        const { deptName } = req.body;
+        const { sequelize } = req.app.locals;
+        const { CommonDepts } = sequelize.models;
+
+        const department = await CommonDepts.findOne({
+            where: { 
+                deptId
+            }
+        });
+
+        if (!department) {
+            return res.status(404).json({
+                success: false,
+                message: 'Department not found'
+            });
+        }
+
+        department.deptName = deptName;
+        await department.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Department name updated successfully'
+        });
+    }
+    catch (error) {
+        console.error('Error updating department name:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error updating department name',
+            error: error.message
+        });
+    }
+}
+
 module.exports = {
     createDepartment,
     getDepartments,
@@ -440,5 +783,10 @@ module.exports = {
     getDepartmentRoles,
     assignFeaturesToRole,
     getDepartmentFeatures,
-    getDeptList
+    deleteDepartment,
+    restoreDept,
+    getDeptList,
+    getDepartmentInfo,
+    checkDeptCodeAvailablity,
+    editDeptName
 };

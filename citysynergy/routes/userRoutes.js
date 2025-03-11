@@ -8,16 +8,19 @@ const authorizeMiddleware = require('../middleware/authorizeMiddleware');
 // Apply authentication middleware to all routes
 router.use(authMiddleware);
 
-// Routes
+// Check availability routes (no authorization required)
+router.post('/check-username', express.json(), userController.checkUsernameAvailability);
+router.post('/check-email', express.json(), userController.checkEmailAvailability);
+
+// Protected routes
 router.get('/', 
-    authMiddleware,
     authorizeMiddleware(['Users Management'], 'canRead'),
     userController.getUsers
 );
 
-router.get('/:uuid',
+router.get('/unassigned',
     authorizeMiddleware(['Users Management'], 'canRead'),
-    userController.getUser
+    userController.getUnassignedUsers
 );
 
 router.post('/',
@@ -25,21 +28,19 @@ router.post('/',
     userController.createUser
 );
 
+router.get('/:uuid',
+    authorizeMiddleware(['Users Management'], 'canRead'),
+    userController.getUser
+);
+
 router.put('/:uuid',
     authorizeMiddleware(['Users Management'], 'canUpdate'),
     userController.updateUser
 );
 
-router.put('/:uuid',
-    authorizeMiddleware(['Users Management'], 'canUpdate'),
+router.delete('/:uuid',
+    authorizeMiddleware(['Users Management'], 'canDelete'),
     userController.deleteUser
 );
-
-//check if username is available ?
-router.post('/check-username', express.json(), userController.checkUsernameAvailability);
-
-//check if email is available ?
-router.post('/check-email', express.json(), userController.checkEmailAvailability);
-
 
 module.exports = router;
