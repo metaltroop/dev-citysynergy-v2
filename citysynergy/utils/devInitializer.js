@@ -35,6 +35,20 @@ const getRolePermissions = (roleName, feature) => {
     }
 };
 
+// Helper function to get hierarchy level for a role
+const getRoleHierarchyLevel = (roleName) => {
+    switch (roleName) {
+        case 'Dev Admin':
+            return 10; // Highest privilege
+        case 'Owner':
+            return 20;
+        case 'System Creator':
+            return 30;
+        default:
+            return 100; // Lowest privilege
+    }
+};
+
 const initializeDevTables = async (sequelize) => {
     try {
         console.log('\n=== Starting Dev Tables Initialization ===');
@@ -42,6 +56,27 @@ const initializeDevTables = async (sequelize) => {
 
         if (!DevUserRole) {
             throw new Error('DevUserRole model not found in sequelize.models');
+        }
+
+        // Check if hierarchyLevel column exists in dev_roles table
+        try {
+            console.log('Checking if hierarchyLevel column exists in dev_roles table...');
+            await sequelize.query(`
+                SELECT hierarchyLevel FROM dev_roles LIMIT 1
+            `);
+            console.log('✓ hierarchyLevel column exists');
+        } catch (error) {
+            if (error.original && error.original.code === 'ER_BAD_FIELD_ERROR') {
+                console.log('hierarchyLevel column does not exist, adding it...');
+                await sequelize.query(`
+                    ALTER TABLE dev_roles 
+                    ADD COLUMN hierarchyLevel INT NOT NULL DEFAULT 100 
+                    COMMENT 'Role hierarchy level (lower number = higher privilege)'
+                `);
+                console.log('✓ Added hierarchyLevel column to dev_roles table');
+            } else {
+                throw error;
+            }
         }
 
         // Define all required features
@@ -78,13 +113,16 @@ const initializeDevTables = async (sequelize) => {
         }
 
         // Check if roles exist
-        const existingRoles = await DevRoles.findAll();
+        const existingRoles = await DevRoles.findAll({
+            attributes: ['roleId', 'roleName', 'hierarchyLevel']
+        });
+        
         if (existingRoles.length === 0) {
             console.log('Creating dev roles...');
             const roleData = [
-                { roleName: 'Dev Admin' },
-                { roleName: 'Owner' },
-                { roleName: 'System Creator' }
+                { roleName: 'Dev Admin', hierarchyLevel: getRoleHierarchyLevel('Dev Admin') },
+                { roleName: 'Owner', hierarchyLevel: getRoleHierarchyLevel('Owner') },
+                { roleName: 'System Creator', hierarchyLevel: getRoleHierarchyLevel('System Creator') }
             ];
 
             const roles = [];
@@ -99,7 +137,22 @@ const initializeDevTables = async (sequelize) => {
             }
             console.log(`✓ Created ${roles.length} dev roles successfully`);
         } else {
-            console.log('✓ Dev roles already exist, skipping creation');
+            console.log('✓ Dev roles already exist, checking hierarchy levels...');
+            
+            // Update hierarchy levels if needed
+            for (const role of existingRoles) {
+                const expectedLevel = getRoleHierarchyLevel(role.roleName);
+                
+                // If hierarchyLevel is null or different from expected
+                if (role.hierarchyLevel === null || role.hierarchyLevel !== expectedLevel) {
+                    console.log(`Updating hierarchy level for ${role.roleName} to ${expectedLevel}`);
+                    await DevRoles.update(
+                        { hierarchyLevel: expectedLevel },
+                        { where: { roleId: role.roleId } }
+                    );
+                }
+            }
+            console.log('✓ Role hierarchy levels updated');
         }
 
         // Rest of the code for dev admin user creation...

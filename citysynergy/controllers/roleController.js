@@ -4,6 +4,56 @@ const emailService = require('../services/emailService');
 const { Op } = require('sequelize');
 const activityLogService = require('../services/activityLogService');
 
+// Helper function to get a user's minimum hierarchy level (highest privilege)
+const getUserMinHierarchyLevel = async (userId, sequelize) => {
+    const { DevUserRole, DevRoles } = sequelize.models;
+    
+    // Get all roles assigned to the user
+    const userRoles = await DevUserRole.findAll({
+        where: { userId },
+        include: [{
+            model: DevRoles,
+            as: 'role',
+            attributes: ['roleId', 'roleName', 'hierarchyLevel'],
+            where: { isDeleted: false }
+        }]
+    });
+    
+    if (!userRoles || userRoles.length === 0) {
+        return Number.MAX_SAFE_INTEGER; // No roles, lowest privilege
+    }
+    
+    // Helper function to get default hierarchy level based on role name
+    const getDefaultHierarchyLevel = (roleName) => {
+        if (roleName.toLowerCase().includes('admin')) {
+            return 10;
+        } else if (roleName.toLowerCase().includes('owner')) {
+            return 20;
+        } else if (roleName.toLowerCase().includes('creator')) {
+            return 30;
+        } else if (roleName.toLowerCase().includes('manager')) {
+            return 40;
+        } else if (roleName.toLowerCase().includes('supervisor')) {
+            return 50;
+        } else if (roleName.toLowerCase().includes('user')) {
+            return 90;
+        }
+        return 100;
+    };
+    
+    // Find the minimum hierarchy level (highest privilege)
+    // Handle null hierarchyLevel values by using default values based on role name
+    const hierarchyLevels = userRoles.map(ur => {
+        if (ur.role.hierarchyLevel === null || ur.role.hierarchyLevel === undefined) {
+            return getDefaultHierarchyLevel(ur.role.roleName);
+        }
+        return ur.role.hierarchyLevel;
+    });
+    
+    const minLevel = Math.min(...hierarchyLevels);
+    return minLevel;
+};
+
 const assignRoles = async (req, res) => {
     try {
         const { userId, roles } = req.body;
@@ -19,6 +69,9 @@ const assignRoles = async (req, res) => {
 
         // Remove duplicate role IDs
         const uniqueRoles = [...new Set(roles)];
+
+        // Get the user's minimum hierarchy level (highest privilege)
+        const userHierarchyLevel = await getUserMinHierarchyLevel(req.user.uuid, sequelize);
 
         const result = await withTransaction(async (transaction) => {
             const { CommonUsers, CommonDept } = sequelize.models;
@@ -37,7 +90,7 @@ const assignRoles = async (req, res) => {
             if (user.type === 'dev') {
                 const { DevRole, DevUserRole } = sequelize.models;
 
-                // Validate roles exist
+                // Validate roles exist and check hierarchy levels
                 const validRoles = await DevRole.findAll({
                     where: { 
                         roleId: uniqueRoles,
@@ -50,73 +103,34 @@ const assignRoles = async (req, res) => {
                     throw new Error('One or more invalid role IDs');
                 }
 
-                // Remove existing roles
+                // Check if any role has a higher privilege than the current user
+                const invalidRoles = validRoles.filter(role => role.hierarchyLevel <= userHierarchyLevel);
+                if (invalidRoles.length > 0) {
+                    throw new Error(`You cannot assign roles with equal or higher privilege than your own: ${invalidRoles.map(r => r.roleName).join(', ')}`);
+                }
+
+                // Delete existing roles
                 await DevUserRole.destroy({
                     where: { userId },
                     transaction
                 });
 
-                // Assign new roles
-                await DevUserRole.bulkCreate(
-                    uniqueRoles.map(roleId => ({
+                // Add new roles
+                await Promise.all(uniqueRoles.map(roleId => 
+                    DevUserRole.create({
                         userId,
-                        roleId,
-                        createdBy: req.user.uuid
-                    })),
-                    { transaction }
-                );
+                        roleId
+                    }, { transaction })
+                ));
 
-                // Get role details for email notification
-                const roleDetails = validRoles.map(role => ({
-                    roleName: role.roleName,
-                    roleId: role.roleId
-                }));
-
-                return { user, roleDetails };
-
-            } else if (user.deptId) {
-                const department = await CommonDept.findOne({
-                    where: { 
-                        deptId: user.deptId,
-                        isDeleted: false 
-                    },
-                    transaction
-                });
-
-                if (!department) {
-                    throw new Error('Department not found or inactive');
+                // Get department for email notification
+                let department = null;
+                if (user.deptId) {
+                    department = await CommonDept.findOne({
+                        where: { deptId: user.deptId },
+                        transaction
+                    });
                 }
-
-                const deptModels = getDepartmentModels(user.deptId, department.deptCode);
-
-                // Validate roles exist in department
-                const validRoles = await deptModels.DeptRole.findAll({
-                    where: { 
-                        roleId: uniqueRoles,
-                        isDeleted: false 
-                    },
-                    transaction
-                });
-
-                if (validRoles.length !== uniqueRoles.length) {
-                    throw new Error('One or more invalid department role IDs');
-                }
-
-                // Remove existing roles
-                await deptModels.DeptUserRole.destroy({
-                    where: { userId },
-                    transaction
-                });
-
-                // Assign new roles
-                await deptModels.DeptUserRole.bulkCreate(
-                    uniqueRoles.map(roleId => ({
-                        userId,
-                        roleId,
-                        createdBy: req.user.uuid
-                    })),
-                    { transaction }
-                );
 
                 // Get role details for email notification
                 const roleDetails = validRoles.map(role => ({
@@ -125,8 +139,71 @@ const assignRoles = async (req, res) => {
                 }));
 
                 return { user, roleDetails, department };
+            } else if (user.deptId) {
+                // Handle department roles (unchanged)
+                const department = await CommonDept.findOne({
+                    where: { deptId: user.deptId },
+                    transaction
+                });
+
+                if (department) {
+                    const deptCode = department.deptCode.toLowerCase();
+                    const deptTablePrefix = `${user.deptId}_${deptCode}`;
+
+                    // Validate roles exist
+                    const roleTableName = `${deptTablePrefix}_role`;
+                    const roleResults = await sequelize.query(
+                        `SELECT roleId, roleName FROM \`${roleTableName}\` 
+                         WHERE roleId IN (:roles) AND isDeleted = 0`,
+                        {
+                            replacements: { roles: uniqueRoles },
+                            type: sequelize.QueryTypes.SELECT,
+                    transaction
+                        }
+                    );
+
+                    if (roleResults.length !== uniqueRoles.length) {
+                    throw new Error('One or more invalid department role IDs');
+                }
+
+                    // Delete existing roles
+                    const userRoleTableName = `${deptTablePrefix}_user_role`;
+                    await sequelize.query(
+                        `DELETE FROM \`${userRoleTableName}\` WHERE userId = :userId`,
+                        {
+                            replacements: { userId },
+                    transaction
+                        }
+                    );
+
+                    // Add new roles
+                    const currentTimestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+                    await Promise.all(uniqueRoles.map(roleId => 
+                        sequelize.query(
+                            `INSERT INTO \`${userRoleTableName}\` (userId, roleId, createdAt, updatedAt) 
+                             VALUES (:userId, :roleId, :createdAt, :updatedAt)`,
+                            {
+                                replacements: { 
+                        userId,
+                        roleId,
+                                    createdAt: currentTimestamp, 
+                                    updatedAt: currentTimestamp 
+                                },
+                                transaction
+                            }
+                        )
+                    ));
+
+                // Get role details for email notification
+                    const roleDetails = roleResults.map(role => ({
+                    roleName: role.roleName,
+                    roleId: role.roleId
+                }));
+
+                return { user, roleDetails, department };
             } else {
                 throw new Error('User has no department assignment');
+                }
             }
         });
 
@@ -162,7 +239,7 @@ const assignRoles = async (req, res) => {
 
     } catch (error) {
         console.error('Error assigning roles:', error);
-        res.status(error.message.includes('invalid') ? 400 : 500).json({
+        res.status(500).json({
             success: false,
             message: 'Error assigning roles',
             error: error.message
@@ -187,7 +264,7 @@ const getUserRoles = async (req, res) => {
                 where: { userId },
                 include: [{
                     model: DevRole,
-                    attributes: ['roleId', 'roleName']
+                    attributes: ['roleId', 'roleName', 'hierarchyLevel']
                 }]
             });
         } else if (user.deptId) {
@@ -212,7 +289,8 @@ const getUserRoles = async (req, res) => {
                 deptId: user.deptId,
                 roles: roles.map(r => ({
                     roleId: r.role.roleId,
-                    roleName: r.role.roleName
+                    roleName: r.role.roleName,
+                    hierarchyLevel: r.role.hierarchyLevel
                 }))
             }
         });
@@ -234,6 +312,7 @@ const getdevRoles = async (req, res) => {
         
         const roles = await DevRoles.findAll({
             where: { isDeleted: false },
+            attributes: ['roleId', 'roleName', 'hierarchyLevel'],
             include: [{
                 model: DevFeatures,
                 through: {
@@ -247,6 +326,7 @@ const getdevRoles = async (req, res) => {
         const formattedRoles = roles.map(role => ({
             roleId: role.roleId,
             roleName: role.roleName,
+            hierarchyLevel: role.hierarchyLevel,
             features: role.DevFeatures.map(feature => ({
                 featureId: feature.featureId,
                 featureName: feature.featureName,
@@ -314,6 +394,7 @@ const getDevRolePermissions = async (req, res) => {
             data: {
                 roleId: role.roleId,
                 roleName: role.roleName,
+                hierarchyLevel: role.hierarchyLevel,
                 features: permissions
             }
         });
@@ -334,17 +415,30 @@ const updateDevRolePermissions = async (req, res) => {
         const { sequelize } = req.app.locals;
         const { DevRoles, DevRoleFeature } = sequelize.models;
 
-        const result = await withTransaction(async (transaction) => {
-            // Verify role exists
-            const role = await DevRoles.findOne({
-                where: { roleId, isDeleted: false },
-                transaction
+        // Get the role to be updated
+        const targetRole = await DevRoles.findOne({
+            where: { roleId, isDeleted: false }
+        });
+
+        if (!targetRole) {
+            return res.status(404).json({
+                success: false,
+                message: 'Role not found'
             });
+        }
 
-            if (!role) {
-                throw new Error('Role not found');
-            }
+        // Get the user's minimum hierarchy level (highest privilege)
+        const userHierarchyLevel = await getUserMinHierarchyLevel(req.user.uuid, sequelize);
+        
+        // Check if user has sufficient privileges to modify this role
+        if (userHierarchyLevel >= targetRole.hierarchyLevel) {
+            return res.status(403).json({
+                success: false,
+                message: 'You do not have permission to modify this role. You can only modify roles with a lower privilege level than your own.'
+            });
+        }
 
+        const result = await withTransaction(async (transaction) => {
             // Update permissions
             await Promise.all(permissions.map(async (perm) => {
                 await DevRoleFeature.update(
@@ -366,16 +460,16 @@ const updateDevRolePermissions = async (req, res) => {
 
             await activityLogService.createActivityLog(sequelize, {
                 activityType: 'ROLE_MODIFIED',
-                description: `Role "${role.roleName}" permissions updated`,
+                description: `Role "${targetRole.roleName}" permissions updated`,
                 userId: req.user?.uuid,
                 metadata: {
-                    roleId: role.roleId,
+                    roleId: targetRole.roleId,
                     updatedPermissions: permissions
                 },
                 ipAddress: req.ip
             });
 
-            return role;
+            return targetRole;
         });
 
         res.status(200).json({
@@ -439,17 +533,30 @@ const deleteDevRole = async (req, res) => {
         const { sequelize } = req.app.locals;
         const { DevRoles, DevUserRole, CommonUsers } = sequelize.models;
 
-        const result = await withTransaction(async (transaction) => {
             // Find role and check if exists
             const role = await DevRoles.findOne({
-                where: { roleId, isDeleted: false },
-                transaction
+            where: { roleId, isDeleted: false }
             });
 
             if (!role) {
-                throw new Error('Role not found or already deleted');
-            }
+            return res.status(404).json({
+                success: false,
+                message: 'Role not found or already deleted'
+            });
+        }
 
+        // Get the user's minimum hierarchy level (highest privilege)
+        const userHierarchyLevel = await getUserMinHierarchyLevel(req.user.uuid, sequelize);
+        
+        // Check if user has sufficient privileges to delete this role
+        if (userHierarchyLevel >= role.hierarchyLevel) {
+            return res.status(403).json({
+                success: false,
+                message: 'You do not have permission to delete this role. You can only delete roles with a lower privilege level than your own.'
+            });
+        }
+
+        const result = await withTransaction(async (transaction) => {
             // Find all users with this role
             const usersWithRole = await DevUserRole.findAll({
                 where: { roleId },
@@ -512,7 +619,8 @@ const deleteDevRole = async (req, res) => {
             description: `Role "${result.role.roleName}" deleted`,
             userId: req.user.uuid,
             metadata: {
-                roleId: result.role.roleId
+                roleId: result.role.roleId,
+                hierarchyLevel: result.role.hierarchyLevel
             },
             ipAddress: req.ip
         });
@@ -539,7 +647,7 @@ const deleteDevRole = async (req, res) => {
 
 const createDevRole = async (req, res) => {
     try {
-        const { roleName, roleDescription } = req.body;
+        const { roleName, roleDescription, hierarchyLevel = 100 } = req.body;
         const { sequelize } = req.app.locals;
         const { DevRoles, DevFeatures, DevRoleFeature } = sequelize.models;
 
@@ -547,6 +655,17 @@ const createDevRole = async (req, res) => {
             return res.status(400).json({
                 success: false,
                 message: 'Role name is required'
+            });
+        }
+
+        // Get the user's minimum hierarchy level (highest privilege)
+        const userHierarchyLevel = await getUserMinHierarchyLevel(req.user.uuid, sequelize);
+        
+        // Check if user has sufficient privileges to create a role at this level
+        if (userHierarchyLevel >= hierarchyLevel) {
+            return res.status(403).json({
+                success: false,
+                message: 'You cannot create a role with equal or higher privilege than your own. The hierarchyLevel must be higher than your current level.'
             });
         }
 
@@ -579,11 +698,12 @@ const createDevRole = async (req, res) => {
 
             const roleId = `DROL${String(nextNumber).padStart(3, '0')}`;
 
-            // Create new role
+            // Create new role with hierarchy level
             const role = await DevRoles.create({
                 roleId,
                 roleName,
                 roleDescription: roleDescription || null,
+                hierarchyLevel: parseInt(hierarchyLevel),
                 isDeleted: false
             }, { transaction });
 
@@ -611,10 +731,11 @@ const createDevRole = async (req, res) => {
         // Log role creation
         await activityLogService.createActivityLog(sequelize, {
             activityType: 'ROLE_MODIFIED',
-            description: `New role "${result.roleName}" created`,
+            description: `New role "${result.roleName}" created with hierarchy level ${result.hierarchyLevel}`,
             userId: req.user.uuid,
             metadata: {
-                roleId: result.roleId
+                roleId: result.roleId,
+                hierarchyLevel: result.hierarchyLevel
             },
             ipAddress: req.ip
         });
@@ -625,13 +746,13 @@ const createDevRole = async (req, res) => {
             data: {
                 roleId: result.roleId,
                 roleName: result.roleName,
-                roleDescription: result.roleDescription
+                hierarchyLevel: result.hierarchyLevel
             }
         });
 
     } catch (error) {
         console.error('Error creating role:', error);
-        res.status(error.message.includes('already exists') ? 409 : 500).json({
+        res.status(500).json({
             success: false,
             message: 'Error creating role',
             error: error.message

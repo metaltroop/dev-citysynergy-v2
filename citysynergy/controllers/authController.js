@@ -34,11 +34,21 @@ const login = async (req, res) => {
         // Find user by email with department information
         const user = await CommonUsers.findOne({
             where: { email, isDeleted: false },
-            include: [{
-                model: CommonDepts,
-                where: { isDeleted: false },
-                required: false
-            }]
+            include: [
+                {
+                    model: CommonDepts,
+                    where: { isDeleted: false },
+                    required: false
+                },
+                {
+                    model: sequelize.models.UserImage,
+                    where: { isActive: true },
+                    attributes: ['imageUrl'],
+                    required: false,
+                    limit: 1,
+                    order: [['createdAt', 'DESC']]
+                }
+            ]
         });
 
         if (!user) {
@@ -223,9 +233,11 @@ const login = async (req, res) => {
             data: {
                 user: {
                     id: user.uuid,
+                    name: user.username,
                     email: user.email,
                     type: user.type,
                     deptId: user.deptId,
+                    profileImage: user.UserImages && user.UserImages.length > 0 ? user.UserImages[0].imageUrl : null,
                     state: {
                         needsPasswordChange: user.needsPasswordChange,
                         isFirstLogin: user.isFirstLogin
@@ -234,7 +246,7 @@ const login = async (req, res) => {
                 permissions: {
                     roles: formattedPermissions,
                     can: {
-                        manageUsers: hasPermission(formattedPermissions, 'User Management', 'write'),
+                        manageUsers: hasPermission(formattedPermissions, 'Users Management', 'write'),
                         manageDepartments: hasPermission(formattedPermissions, 'Department Management', 'write'),
                         manageRoles: hasPermission(formattedPermissions, 'Role Management', 'write'),
                         manageFeatures: hasPermission(formattedPermissions, 'Feature Management', 'write'),

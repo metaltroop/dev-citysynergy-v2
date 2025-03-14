@@ -1,0 +1,6 @@
+@echo off
+echo Running role hierarchy migration...
+node citysynergy/migrations/addRoleHierarchy.js
+echo.
+echo Starting application...
+npm start 

@@ -14,6 +14,7 @@ const formatUserData = (user, department = null, role = null) => ({
     email: user.email,
     type: user.type,
     deptId: user.deptId,
+    profileImage: user.UserImages && user.UserImages.length > 0 ? user.UserImages[0].imageUrl : null,
     department: department ? {
         id: department.deptId,
         name: department.deptName,
@@ -188,7 +189,7 @@ const listUsers = async (req, res) => {
     try {
         const { type, deptId } = req.query;
         const { sequelize } = req.app.locals;
-        const { CommonUsers, CommonDepts } = sequelize.models;
+        const { CommonUsers, CommonDepts, UserImage } = sequelize.models;
 
         const whereClause = {
             isDeleted: false
@@ -200,16 +201,41 @@ const listUsers = async (req, res) => {
         const users = await CommonUsers.findAll({
             where: whereClause,
             attributes: ['uuid', 'username', 'email', 'type', 'deptId', 'lastLogin'],
-            include: [{
-                model: CommonDepts,
-                attributes: ['deptName', 'deptCode'],
-                required: false
-            }]
+            include: [
+                {
+                    model: CommonDepts,
+                    attributes: ['deptName', 'deptCode'],
+                    required: false
+                },
+                {
+                    model: UserImage,
+                    where: { isActive: true },
+                    attributes: ['imageUrl'],
+                    required: false,
+                    limit: 1,
+                    order: [['createdAt', 'DESC']]
+                }
+            ]
         });
+
+        // Format the response to include profile images
+        const formattedUsers = users.map(user => ({
+            id: user.uuid,
+            username: user.username,
+            email: user.email,
+            type: user.type,
+            deptId: user.deptId,
+            department: user.CommonDept ? {
+                name: user.CommonDept.deptName,
+                code: user.CommonDept.deptCode
+            } : null,
+            lastLogin: user.lastLogin,
+            profileImage: user.UserImages && user.UserImages.length > 0 ? user.UserImages[0].imageUrl : null
+        }));
 
         res.status(200).json({
             success: true,
-            data: users
+            data: formattedUsers
         });
     } catch (error) {
         console.error('Error listing users:', error);
@@ -336,7 +362,7 @@ const getUsers = async (req, res) => {
     try {
         const { type, deptId } = req.query;
         const { sequelize } = req.app.locals;
-        const { CommonUsers, CommonDepts, DevUserRole, DevRoles } = sequelize.models;
+        const { CommonUsers, CommonDepts, DevUserRole, DevRoles, UserImage } = sequelize.models;
 
         const whereClause = { isDeleted: false };
         if (type) whereClause.type = type;
@@ -344,12 +370,22 @@ const getUsers = async (req, res) => {
 
         const users = await CommonUsers.findAll({
             where: whereClause,
-            include: [{
-                model: CommonDepts,
-                where: { isDeleted: false }, // Add this condition
-                attributes: ['deptId', 'deptName', 'deptCode'],
-                required: false
-            }],
+            include: [
+                {
+                    model: CommonDepts,
+                    where: { isDeleted: false },
+                    attributes: ['deptId', 'deptName', 'deptCode'],
+                    required: false
+                },
+                {
+                    model: UserImage,
+                    where: { isActive: true },
+                    attributes: ['imageUrl'],
+                    required: false,
+                    limit: 1,
+                    order: [['createdAt', 'DESC']]
+                }
+            ],
             attributes: [
                 'uuid', 'username', 'email', 'type', 'deptId',
                 'isFirstLogin', 'needsPasswordChange', 'lastLogin'
@@ -424,14 +460,24 @@ const getUser = async (req, res) => {
     try {
         const { uuid } = req.params;
         const { sequelize } = req.app.locals;
-        const { CommonUsers, CommonDepts } = sequelize.models;
+        const { CommonUsers, CommonDepts, UserImage } = sequelize.models;
 
         const user = await CommonUsers.findOne({
             where: { uuid, isDeleted: false },
-            include: [{
-                model: CommonDepts,
-                attributes: ['deptId', 'deptName', 'deptCode']
-            }],
+            include: [
+                {
+                    model: CommonDepts,
+                    attributes: ['deptId', 'deptName', 'deptCode']
+                },
+                {
+                    model: UserImage,
+                    where: { isActive: true },
+                    attributes: ['imageUrl'],
+                    required: false,
+                    limit: 1,
+                    order: [['createdAt', 'DESC']]
+                }
+            ],
             attributes: [
                 'uuid', 'username', 'email', 'type', 'deptId',
                 'isFirstLogin', 'needsPasswordChange', 'lastLogin'
@@ -549,7 +595,7 @@ const getUnassignedUsers = async (req, res) => {
     try {
         const { search } = req.query;
         const { sequelize } = req.app.locals;
-        const { CommonUsers } = sequelize.models;
+        const { CommonUsers, UserImage } = sequelize.models;
         
         const whereClause = {
             type: 'dept',
@@ -567,6 +613,16 @@ const getUnassignedUsers = async (req, res) => {
         const users = await CommonUsers.findAll({
             where: whereClause,
             attributes: ['uuid', 'username', 'email'],
+            include: [
+                {
+                    model: UserImage,
+                    where: { isActive: true },
+                    attributes: ['imageUrl'],
+                    required: false,
+                    limit: 1,
+                    order: [['createdAt', 'DESC']]
+                }
+            ],
             limit: 10
         });
 
@@ -577,15 +633,18 @@ const getUnassignedUsers = async (req, res) => {
             });
         }
 
+        // Format the response to include profile images
+        const formattedUsers = users.map(user => ({
+            id: user.uuid,
+            username: user.username,
+            email: user.email,
+            profileImage: user.UserImages && user.UserImages.length > 0 ? user.UserImages[0].imageUrl : null
+        }));
+
         res.status(200).json({
             success: true,
-            data: users.map(user => ({
-                id: user.uuid,
-                username: user.username,
-                email: user.email
-            }))
+            data: formattedUsers
         });
-
     } catch (error) {
         console.error('Error getting unassigned users:', error);
         res.status(500).json({

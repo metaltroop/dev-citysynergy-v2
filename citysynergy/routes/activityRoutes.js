@@ -13,6 +13,110 @@ const authorizeMiddleware = require('../middleware/authorizeMiddleware');
 
 /**
  * @swagger
+ * /api/activity/dev-dashboard:
+ *   get:
+ *     summary: Get all dashboard data in a single API call (for dev admin)
+ *     tags: [Activity]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *         description: Maximum number of recent activities to return
+ *       - in: query
+ *         name: days
+ *         schema:
+ *           type: integer
+ *           default: 30
+ *         description: Number of days to include in system activity statistics
+ *     responses:
+ *       200:
+ *         description: Dashboard data retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     stats:
+ *                       type: object
+ *                       properties:
+ *                         userCount:
+ *                           type: integer
+ *                           description: Total number of active users
+ *                         deptCount:
+ *                           type: integer
+ *                           description: Total number of active departments
+ *                         clashCount:
+ *                           type: integer
+ *                           description: Number of active clashes
+ *                         systemHealth:
+ *                           type: number
+ *                           format: float
+ *                           description: System health percentage
+ *                     recentActivities:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id:
+ *                             type: string
+ *                           type:
+ *                             type: string
+ *                           description:
+ *                             type: string
+ *                           user:
+ *                             type: object
+ *                           department:
+ *                             type: object
+ *                           metadata:
+ *                             type: object
+ *                           timestamp:
+ *                             type: string
+ *                             format: date-time
+ *                     systemActivity:
+ *                       type: object
+ *                       properties:
+ *                         dailyActivity:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               date:
+ *                                 type: string
+ *                                 format: date
+ *                               count:
+ *                                 type: integer
+ *                         activityTypes:
+ *                           type: array
+ *                           items:
+ *                             type: object
+ *                             properties:
+ *                               type:
+ *                                 type: string
+ *                               count:
+ *                                 type: integer
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
+router.get('/dev-dashboard', 
+    authMiddleware,
+    authorizeMiddleware(['Users Management'], 'canRead'), // Ensure only users with appropriate permissions can access
+    activityController.getDevDashboard
+);
+
+/**
+ * @swagger
  * /api/activity/recent:
  *   get:
  *     summary: Get recent system activity

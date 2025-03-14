@@ -14,6 +14,7 @@ const DevFeatures = require('../models/dev_features');
 const DevUserRole = require('../models/dev_user_role');
 const DevRoleFeature = require('../models/dev_roleFeature');
 const ActivityLog = require('../models/activity_log');
+const UserImage = require('../models/user_images');
 
 const initializeDatabase = async () => {
     try {
@@ -78,6 +79,7 @@ const initializeDatabase = async () => {
         sequelize.models.CommonInventory = require('../models/common_inventory')(sequelize);
         sequelize.models.InventoryRequest = require('../models/inventory_request')(sequelize);
         sequelize.models.ActivityLog = require('../models/activity_log')(sequelize);
+        sequelize.models.UserImage = require('../models/user_images')(sequelize);
         
         console.log('✓ All models registered successfully');
 
@@ -96,7 +98,8 @@ const initializeDatabase = async () => {
             CommonIssues,
             CommonInventory,
             InventoryRequest,
-            ActivityLog
+            ActivityLog,
+            UserImage
         } = sequelize.models;
 
         // Dev role associations
@@ -203,6 +206,17 @@ const initializeDatabase = async () => {
             targetKey: 'deptId'
         });
 
+        // User Image associations
+        CommonUsers.hasMany(UserImage, {
+            foreignKey: 'userId',
+            sourceKey: 'uuid'
+        });
+
+        UserImage.belongsTo(CommonUsers, {
+            foreignKey: 'userId',
+            targetKey: 'uuid'
+        });
+
         console.log('✓ All model associations set up successfully');
 
         // Sync tables in correct order
@@ -262,7 +276,8 @@ const initializeDatabase = async () => {
             CommonIssues.sync().then(() => console.log('✓ CommonIssues table synchronized')),
             CommonInventory.sync().then(() => console.log('✓ CommonInventory table synchronized')),
             InventoryRequest.sync().then(() => console.log('✓ InventoryRequest table synchronized')),
-            ActivityLog.sync().then(() => console.log('✓ ActivityLog table synchronized'))
+            ActivityLog.sync().then(() => console.log('✓ ActivityLog table synchronized')),
+            UserImage.sync().then(() => console.log('✓ UserImage table synchronized'))
         ]);
 
         console.log('✓ All models synchronized successfully\n'); 
