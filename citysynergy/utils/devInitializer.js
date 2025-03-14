@@ -1,4 +1,6 @@
 const bcrypt = require('bcrypt');
+require('dotenv').config();
+
 
 const getRolePermissions = (roleName, feature) => {
     switch (roleName) {
@@ -107,11 +109,14 @@ const initializeDevTables = async (sequelize) => {
 
         if (!devAdmin) {
             console.log('Creating dev admin user...');
-            const hashedPassword = await bcrypt.hash('city@admin', 10);
+            const devAdminEmail = process.env.devadminemail;
+            const devAdminPassword = process.env.devadminpassword;
+            const hashedPassword = await bcrypt.hash(devAdminPassword, 10);
+            
             devAdmin = await CommonUsers.create({
                 username: 'devAdmin',
                 password: hashedPassword,
-                email: 'admin@citysynergy.com',
+                email: devAdminEmail,  // Changed from devAdminPassword to devAdminEmail
                 type: 'dev',
                 isFirstLogin: false,
                 needsPasswordChange: false
@@ -195,4 +200,4 @@ const initializeDevTables = async (sequelize) => {
 
 module.exports = {
     initializeDevTables
-};  
+};
