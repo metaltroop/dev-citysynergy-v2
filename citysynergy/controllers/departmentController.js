@@ -5,6 +5,7 @@ const { withTransaction } = require('../utils/transactionManager');
 const emailService = require('../services/emailService');
 const bcrypt = require('bcrypt');
 const { generateCustomId, generateTempPassword } = require('../utils/helpers');
+const activityLogService = require('../services/activityLogService');
 
 const createDepartment = async (req, res) => {
     try {
@@ -112,23 +113,31 @@ const createDepartment = async (req, res) => {
                 roleId: deptHeadRole.roleId
             }, { transaction });
 
-            return { department, headUser: existingUser };
+            return { department, deptTables: [deptModels.DeptRole, deptModels.DeptFeature, deptModels.DeptRoleFeature, deptModels.DeptUserRole] };
+        });
+
+        // Log department creation
+        await activityLogService.createActivityLog(sequelize, {
+            activityType: 'DEPT_CREATED',
+            description: `Department "${result.department.deptName}" created`,
+            userId: req.user.uuid,
+            deptId: result.department.deptId,
+            metadata: {
+                deptCode: result.department.deptCode,
+                headUserId: result.department.deptHead,
+                tablesCreated: result.deptTables.map(t => t.tableName)
+            },
+            ipAddress: req.ip
         });
 
         res.status(201).json({
             success: true,
             message: 'Department created successfully',
             data: {
-                department: {
-                    deptId: result.department.deptId,
-                    deptName: result.department.deptName,
-                    deptCode: result.department.deptCode,
-                    deptHead: result.department.deptHead
-                },
-                headUser: {
-                    uuid: result.headUser.uuid,
-                    email: result.headUser.email
-                }
+                deptId: result.department.deptId,
+                deptName: result.department.deptName,
+                deptCode: result.department.deptCode,
+                deptHead: result.department.deptHead
             }
         });
 
@@ -454,12 +463,30 @@ const updateDepartment = async (req, res) => {
                 deptHead: headUserId
             }, { transaction });
 
-            return department;
+            return { department, updatedFields: { deptName, deptCode, deptHead: headUserId } };
+        });
+
+        // Log department update
+        await activityLogService.createActivityLog(sequelize, {
+            activityType: 'DEPT_UPDATED',
+            description: `Department "${result.department.deptName}" updated`,
+            userId: req.user.uuid,
+            deptId: deptId,
+            metadata: {
+                updatedFields: result.updatedFields
+            },
+            ipAddress: req.ip
         });
 
         res.status(200).json({
             success: true,
-            data: result
+            message: 'Department updated successfully',
+            data: {
+                deptId: result.department.deptId,
+                deptName: result.department.deptName,
+                deptCode: result.department.deptCode,
+                deptHead: result.department.deptHead
+            }
         });
     } catch (error) {
         console.error('Error updating department:', error);
@@ -528,6 +555,15 @@ const deleteDepartment = async (req, res) => {
             };
         });
 
+        // Log department deletion
+        await activityLogService.createActivityLog(sequelize, {
+            activityType: 'DEPT_UPDATED',
+            description: `Department "${result.department.deptName}" deleted`,
+            userId: req.user.uuid,
+            deptId: deptId,
+            ipAddress: req.ip
+        });
+
         res.status(200).json({
             success: true,
             message: 'Department and associated users deleted successfully',
@@ -563,9 +599,22 @@ const restoreDept = async (req, res) => {
 
         await department.update({ isDeleted: false });
 
+        // Log department restoration
+        await activityLogService.createActivityLog(sequelize, {
+            activityType: 'DEPT_UPDATED',
+            description: `Department "${department.deptName}" restored`,
+            userId: req.user.uuid,
+            deptId: deptId,
+            ipAddress: req.ip
+        });
+
         res.status(200).json({
             success: true,
-            message: 'Department restored successfully'
+            message: 'Department restored successfully',
+            data: {
+                deptId: department.deptId,
+                deptName: department.deptName
+            }
         });
     }
     catch (error) {

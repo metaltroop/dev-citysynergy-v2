@@ -7,6 +7,7 @@ const { withTransaction, withOTPTransaction } = require('../utils/transactionMan
 const { Op } = require('sequelize');
 const emailService = require('../services/emailService');
 const { createOtp ,generateTempPassword } = require('../utils/helpers');
+const activityLogService = require('../services/activityLogService');
 
 const generateTokens = (user) => {
     const accessToken = jwt.sign(
@@ -41,6 +42,7 @@ const login = async (req, res) => {
         });
 
         if (!user) {
+            // No need to log here - the middleware will handle it
             return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
 
@@ -48,11 +50,20 @@ const login = async (req, res) => {
         if (user.isFirstLogin && user.needsPasswordChange) {
             const isTempPasswordValid = await bcrypt.compare(password, user.tempPassword);
             if (!isTempPasswordValid) {
+                // No need to log here - the middleware will handle it
                 return res.status(401).json({ success: false, message: 'Invalid credentials' });
             }
 
             const otpRecord = await createOtp(sequelize, user.uuid, 'FIRST_LOGIN');
             await emailService.sendFirstLoginOTP(user.email, otpRecord.otp);
+
+            // Log OTP sent for first login
+            await activityLogService.createActivityLog(sequelize, {
+                activityType: 'SYSTEM',
+                description: `First login OTP sent to ${email}`,
+                userId: user.uuid,
+                ipAddress: req.ip
+            });
 
             return res.status(200).json({
                 success: true,
@@ -65,11 +76,20 @@ const login = async (req, res) => {
         if (!user.isFirstLogin && user.needsPasswordChange) {
             const isTempPasswordValid = await bcrypt.compare(password, user.tempPassword);
             if (!isTempPasswordValid) {
+                // No need to log here - the middleware will handle it
                 return res.status(401).json({ success: false, message: 'Invalid credentials' });
             }
 
             const otpRecord = await createOtp(sequelize, user.uuid, 'PASSWORD_RESET');
             await emailService.sendPasswordResetOTP(user.email, otpRecord.otp);
+
+            // Log OTP sent for password reset
+            await activityLogService.createActivityLog(sequelize, {
+                activityType: 'SYSTEM',
+                description: `Password reset OTP sent to ${email}`,
+                userId: user.uuid,
+                ipAddress: req.ip
+            });
 
             return res.status(200).json({
                 success: true,
@@ -81,6 +101,7 @@ const login = async (req, res) => {
         // **Regular Login Flow**
         const isValidPassword = await bcrypt.compare(password, user.password);
         if (!isValidPassword) {
+            // No need to log here - the middleware will handle it
             return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
 
@@ -195,6 +216,8 @@ const login = async (req, res) => {
             );
         };
 
+        // No need to log successful login here - the middleware will handle it
+
         res.status(200).json({
             success: true,
             data: {
@@ -230,10 +253,6 @@ const login = async (req, res) => {
         res.status(500).json({ success: false, message: error.message });
     }
 };
-
- 
-
-
 
 // Helper function to check permissions
 const hasPermission = (roles, featureName, action) => {
@@ -274,6 +293,8 @@ const refreshToken = async (req, res) => {
         // Generate new tokens
         const tokens = generateTokens(user);
 
+        // No logging for GET operation
+
         res.status(200).json({
             success: true,
             data: { tokens }
@@ -305,6 +326,14 @@ const changePassword = async (req, res) => {
         // Verify current password
         const isValidPassword = await bcrypt.compare(currentPassword, user.password);
         if (!isValidPassword) {
+            // Log failed password change attempt
+            await activityLogService.createActivityLog(sequelize, {
+                activityType: 'USER_UPDATED',
+                description: `Failed password change attempt for ${user.email} (invalid current password)`,
+                userId: uuid,
+                ipAddress: req.ip
+            });
+            
             return res.status(401).json({
                 success: false,
                 message: 'Current password is incorrect'
@@ -318,6 +347,14 @@ const changePassword = async (req, res) => {
         await user.update({
             password: hashedPassword,
             needsPasswordChange: false
+        });
+
+        // Log successful password change
+        await activityLogService.createActivityLog(sequelize, {
+            activityType: 'USER_UPDATED',
+            description: `Password changed successfully for ${user.email}`,
+            userId: uuid,
+            ipAddress: req.ip
         });
 
         res.status(200).json({
@@ -371,6 +408,14 @@ const verifyOtpAndSetNewPassword = async (req, res) => {
         });
 
         if (!otpRecord) {
+            // Log failed OTP verification
+            await activityLogService.createActivityLog(sequelize, {
+                activityType: 'SYSTEM',
+                description: `Failed OTP verification for ${email}`,
+                userId: user.uuid,
+                ipAddress: req.ip
+            });
+            
             return res.status(400).json({
                 success: false,
                 message: 'Invalid or expired OTP'
@@ -390,6 +435,14 @@ const verifyOtpAndSetNewPassword = async (req, res) => {
 
         // Mark OTP as used
         await otpRecord.update({ isUsed: true });
+
+        // Log successful password set after OTP verification
+        await activityLogService.createActivityLog(sequelize, {
+            activityType: 'USER_UPDATED',
+            description: `Password set after OTP verification for ${email}`,
+            userId: user.uuid,
+            ipAddress: req.ip
+        });
 
         // Simple success response
         res.status(200).json({
@@ -423,6 +476,18 @@ const resetPassword = async (req, res) => {
         const hashedPassword = await bcrypt.hash(tempPassword, 10);
         await user.update({ tempPassword: hashedPassword, needsPasswordChange: true });
         await emailService.sendPasswordResetEmail(user, tempPassword);
+        
+        // Log password reset
+        await activityLogService.createActivityLog(sequelize, {
+            activityType: 'USER_UPDATED',
+            description: `Password reset initiated for ${user.email}`,
+            userId: req.user.uuid, // Admin who initiated the reset
+            metadata: {
+                targetUserId: userId
+            },
+            ipAddress: req.ip
+        });
+        
         res.status(200).json({
             success: true,
             message: 'Password reset email sent successfully for user ' + user.email
@@ -435,12 +500,40 @@ const resetPassword = async (req, res) => {
             error: error.message
         });
     }
-}
+};
+
+// Add logout function
+const logout = async (req, res) => {
+    try {
+        const { sequelize } = req.app.locals;
+        
+        // Log logout
+        await activityLogService.createActivityLog(sequelize, {
+            activityType: 'LOGOUT',
+            description: `User logged out`,
+            userId: req.user.uuid,
+            ipAddress: req.ip
+        });
+        
+        res.status(200).json({
+            success: true,
+            message: 'Logged out successfully'
+        });
+    } catch (error) {
+        console.error('Logout error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error during logout',
+            error: error.message
+        });
+    }
+};
 
 module.exports = {
     login,
     refreshToken,
     changePassword,
     verifyOtpAndSetNewPassword,
-    resetPassword
+    resetPassword,
+    logout
 };

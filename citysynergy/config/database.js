@@ -13,6 +13,7 @@ const DevRoles = require('../models/dev_roles');
 const DevFeatures = require('../models/dev_features');
 const DevUserRole = require('../models/dev_user_role');
 const DevRoleFeature = require('../models/dev_roleFeature');
+const ActivityLog = require('../models/activity_log');
 
 const initializeDatabase = async () => {
     try {
@@ -76,6 +77,7 @@ const initializeDatabase = async () => {
         sequelize.models.CommonIssues = require('../models/common_issues')(sequelize);
         sequelize.models.CommonInventory = require('../models/common_inventory')(sequelize);
         sequelize.models.InventoryRequest = require('../models/inventory_request')(sequelize);
+        sequelize.models.ActivityLog = require('../models/activity_log')(sequelize);
         
         console.log('✓ All models registered successfully');
 
@@ -93,7 +95,8 @@ const initializeDatabase = async () => {
             Clash,
             CommonIssues,
             CommonInventory,
-            InventoryRequest
+            InventoryRequest,
+            ActivityLog
         } = sequelize.models;
 
         // Dev role associations
@@ -179,6 +182,27 @@ const initializeDatabase = async () => {
             sourceKey: 'uuid'
         });
 
+        // ActivityLog associations
+        CommonUsers.hasMany(ActivityLog, {
+            foreignKey: 'userId',
+            sourceKey: 'uuid'
+        });
+
+        ActivityLog.belongsTo(CommonUsers, {
+            foreignKey: 'userId',
+            targetKey: 'uuid'
+        });
+
+        CommonDepts.hasMany(ActivityLog, {
+            foreignKey: 'deptId',
+            sourceKey: 'deptId'
+        });
+
+        ActivityLog.belongsTo(CommonDepts, {
+            foreignKey: 'deptId',
+            targetKey: 'deptId'
+        });
+
         console.log('✓ All model associations set up successfully');
 
         // Sync tables in correct order
@@ -237,7 +261,8 @@ const initializeDatabase = async () => {
             Clash.sync().then(() => console.log('✓ Clash table synchronized')),
             CommonIssues.sync().then(() => console.log('✓ CommonIssues table synchronized')),
             CommonInventory.sync().then(() => console.log('✓ CommonInventory table synchronized')),
-            InventoryRequest.sync().then(() => console.log('✓ InventoryRequest table synchronized'))
+            InventoryRequest.sync().then(() => console.log('✓ InventoryRequest table synchronized')),
+            ActivityLog.sync().then(() => console.log('✓ ActivityLog table synchronized'))
         ]);
 
         console.log('✓ All models synchronized successfully\n'); 

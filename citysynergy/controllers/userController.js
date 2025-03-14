@@ -5,6 +5,7 @@ const emailService = require('../services/emailService');
 const bcrypt = require('bcrypt');
 const { generateCustomId, generateTempPassword, getDepartmentModels } = require('../utils/helpers');
 const { Op } = require('sequelize');
+const activityLogService = require('../services/activityLogService');
 
 // Helper function to format user data
 const formatUserData = (user, department = null, role = null) => ({
@@ -150,6 +151,20 @@ const createUser = async (req, res) => {
                 await emailService.sendDepartmentUserEmail(user, tempPassword, department);
             }
 
+            // Log user creation
+            await activityLogService.createActivityLog(sequelize, {
+                activityType: 'USER_CREATED',
+                description: `New user "${user.username}" created`,
+                userId: req.user?.uuid, // The admin who performed the action
+                deptId: user.deptId,
+                metadata: {
+                    newUserId: user.uuid,
+                    userType: user.type,
+                    roleId: roleId
+                },
+                ipAddress: req.ip
+            });
+
             return { user, department, tempPassword, role }; // Include role details in the result
         });
 
@@ -235,6 +250,19 @@ const updateUser = async (req, res) => {
             return user;
         });
 
+        // Log user update
+        await activityLogService.createActivityLog(sequelize, {
+            activityType: 'USER_UPDATED',
+            description: `User "${result.email}" updated`,
+            userId: req.user.uuid,
+            deptId: result.deptId,
+            metadata: {
+                targetUserId: uuid,
+                updatedFields: Object.keys(req.body)
+            },
+            ipAddress: req.ip
+        });
+
         res.status(200).json({
             success: true,
             message: 'User updated successfully',
@@ -272,6 +300,18 @@ const deleteUser = async (req, res) => {
 
         if (user.deptId === null) {
             await user.update({ isDeleted: true });
+            
+            // Log user deletion
+            await activityLogService.createActivityLog(sequelize, {
+                activityType: 'USER_UPDATED',
+                description: `User "${user.email}" deleted`,
+                userId: req.user.uuid,
+                metadata: {
+                    targetUserId: uuid
+                },
+                ipAddress: req.ip
+            });
+            
             return res.status(200).json({
                 success: true,
                 message: 'User deleted successfully'
@@ -555,9 +595,6 @@ const getUnassignedUsers = async (req, res) => {
         });
     }
 };
-
-
-
 
 module.exports = {
     createUser,

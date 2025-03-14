@@ -2,6 +2,7 @@ const { withTransaction } = require('../utils/transactionManager');
 const { getDepartmentModels, generateCustomId } = require('../utils/helpers');
 const emailService = require('../services/emailService');
 const { Op } = require('sequelize');
+const activityLogService = require('../services/activityLogService');
 
 const assignRoles = async (req, res) => {
     try {
@@ -136,6 +137,18 @@ const assignRoles = async (req, res) => {
             await emailService.sendRoleAssignmentEmail(result.user, result.roleDetails);
         }
 
+        // Log role assignment
+        await activityLogService.createActivityLog(sequelize, {
+            activityType: 'ROLE_MODIFIED',
+            description: `Roles assigned to user ${result.user.email}`,
+            userId: req.user.uuid,
+            metadata: {
+                targetUserId: userId,
+                assignedRoles: uniqueRoles
+            },
+            ipAddress: req.ip
+        });
+
         res.status(200).json({
             success: true,
             message: 'Roles assigned successfully',
@@ -246,7 +259,7 @@ const getdevRoles = async (req, res) => {
             }))
         }));
 
-        return res.status(200).json({
+        res.status(200).json({
             success: true,
             data: formattedRoles
         });
@@ -296,7 +309,7 @@ const getDevRolePermissions = async (req, res) => {
             }
         }));
 
-        return res.status(200).json({
+        res.status(200).json({
             success: true,
             data: {
                 roleId: role.roleId,
@@ -351,6 +364,17 @@ const updateDevRolePermissions = async (req, res) => {
                 );
             }));
 
+            await activityLogService.createActivityLog(sequelize, {
+                activityType: 'ROLE_MODIFIED',
+                description: `Role "${role.roleName}" permissions updated`,
+                userId: req.user?.uuid,
+                metadata: {
+                    roleId: role.roleId,
+                    updatedPermissions: permissions
+                },
+                ipAddress: req.ip
+            });
+
             return role;
         });
 
@@ -372,7 +396,7 @@ const updateDevRolePermissions = async (req, res) => {
         });
     }
 };
-//fetch dept roles by deptId
+
 const getDeptRolesByDeptId = async (req, res) => {
     try {
         const { deptId } = req.params;
@@ -394,7 +418,7 @@ const getDeptRolesByDeptId = async (req, res) => {
             { type: sequelize.QueryTypes.SELECT }
         );
 
-        return res.status(200).json({
+        res.status(200).json({
             success: true,
             message : 'Roles fetched successfully for ' + department.deptName,
             data: roles
@@ -482,6 +506,17 @@ const deleteDevRole = async (req, res) => {
             };
         });
 
+        // Log role deletion
+        await activityLogService.createActivityLog(sequelize, {
+            activityType: 'ROLE_MODIFIED',
+            description: `Role "${result.role.roleName}" deleted`,
+            userId: req.user.uuid,
+            metadata: {
+                roleId: result.role.roleId
+            },
+            ipAddress: req.ip
+        });
+
         res.status(200).json({
             success: true,
             message: 'Role deleted successfully',
@@ -501,7 +536,6 @@ const deleteDevRole = async (req, res) => {
         });
     }
 };
-
 
 const createDevRole = async (req, res) => {
     try {
@@ -572,6 +606,17 @@ const createDevRole = async (req, res) => {
             await DevRoleFeature.bulkCreate(roleFeatures, { transaction });
 
             return role;
+        });
+
+        // Log role creation
+        await activityLogService.createActivityLog(sequelize, {
+            activityType: 'ROLE_MODIFIED',
+            description: `New role "${result.roleName}" created`,
+            userId: req.user.uuid,
+            metadata: {
+                roleId: result.roleId
+            },
+            ipAddress: req.ip
         });
 
         res.status(201).json({
