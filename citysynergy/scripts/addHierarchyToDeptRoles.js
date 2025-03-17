@@ -9,10 +9,10 @@ require('dotenv').config(); // Load environment variables
 async function addHierarchyToDeptRoles() {
     // Create a direct connection to the database
     const connection = await mysql.createConnection({
-        host: process.env.DB_HOST || 'myproject.mysql.database.azure.com',
-        user: process.env.DB_USER || 'cityadmin',
-        password: process.env.DB_PASSWORD || 'synergy@2025',
-        database: process.env.DB_NAME || 'citysynergydb',
+        host: process.env.DB_HOST || 'localhost',
+        user: process.env.DB_USER || 'root',
+        password: process.env.DB_PASSWORD || 'root@2025',
+        database: process.env.DB_NAME || 'db2',
         port: process.env.DB_PORT || 3306
     });
     
