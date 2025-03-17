@@ -655,6 +655,456 @@ const getUnassignedUsers = async (req, res) => {
     }
 };
 
+// Get users from the same department as the logged-in user
+const getDeptUsers = async (req, res) => {
+    try {
+        const { search } = req.query;
+        const { deptId } = req.user; // Get deptId from the authenticated user's token
+        
+        // If user doesn't have a department, return error
+        if (!deptId) {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not associated with any department'
+            });
+        }
+
+        const { sequelize } = req.app.locals;
+        const { CommonUsers, CommonDepts, UserImage } = sequelize.models;
+        
+        // Build where clause to find users in the same department
+        const whereClause = {
+            type: 'dept',
+            deptId: deptId,
+            isDeleted: false
+        };
+
+        // Add search functionality if provided
+        if (search) {
+            whereClause[Op.or] = [
+                { username: { [Op.like]: `%${search}%` } },
+                { email: { [Op.like]: `%${search}%` } }
+            ];
+        }
+
+        // Get department info to fetch role data
+        const department = await CommonDepts.findOne({
+            where: { deptId, isDeleted: false },
+            attributes: ['deptId', 'deptName', 'deptCode']
+        });
+
+        if (!department) {
+            return res.status(404).json({
+                success: false,
+                message: 'Department not found or inactive'
+            });
+        }
+
+        // Fetch users from the same department
+        const users = await CommonUsers.findAll({
+            where: whereClause,
+            include: [
+                {
+                    model: CommonDepts,
+                    attributes: ['deptId', 'deptName', 'deptCode'],
+                    required: true
+                },
+                {
+                    model: UserImage,
+                    where: { isActive: true },
+                    attributes: ['imageUrl'],
+                    required: false,
+                    limit: 1,
+                    order: [['createdAt', 'DESC']]
+                }
+            ],
+            attributes: [
+                'uuid', 'username', 'email', 'type', 'deptId',
+                'isFirstLogin', 'needsPasswordChange', 'lastLogin'
+            ]
+        });
+
+        if (users.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'No users found in your department'
+            });
+        }
+
+        // Process each user to include roles using raw SQL for department-specific tables
+        const processedUsers = await Promise.all(users.map(async (user) => {
+            // Get user roles from department-specific tables
+            const userRoleTableName = `${deptId}_${department.deptCode}_user_role`;
+            const roleTableName = `${deptId}_${department.deptCode}_role`;
+            
+            // Use raw SQL to query the dynamically created tables
+            const roleResults = await sequelize.query(
+                `SELECT ur.roleId, r.roleName
+                 FROM \`${userRoleTableName}\` ur
+                 LEFT JOIN \`${roleTableName}\` r ON ur.roleId = r.roleId
+                 WHERE ur.userId = :userId`,
+                {
+                    replacements: { userId: user.uuid },
+                    type: sequelize.QueryTypes.SELECT
+                }
+            ).catch(err => {
+                console.warn(`Error fetching roles from ${userRoleTableName}:`, err);
+                return []; 
+            });
+
+            const roles = roleResults.map(role => ({
+                id: role.roleId,
+                name: role.roleName || 'Unknown Role'
+            }));
+
+            // Format user data with department and roles
+            const formattedUser = formatUserData(user, user.CommonDept);
+            return {
+                ...formattedUser,
+                roles
+            };
+        }));
+
+        res.status(200).json({
+            success: true,
+            data: processedUsers
+        });
+    } catch (error) {
+        console.error('Error getting department users:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error getting department users',
+            error: error.message
+        });
+    }
+};
+
+// Get a specific user from the logged-in user's department by ID
+const getDeptuserById = async (req, res) => {
+    try {
+        const { uuid } = req.params;
+        const { deptId } = req.user; // Get deptId from the authenticated user's token
+        
+        // If user doesn't have a department, return error
+        if (!deptId) {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not associated with any department'
+            });
+        }
+
+        const { sequelize } = req.app.locals;
+        const { CommonUsers, CommonDepts, UserImage } = sequelize.models;
+        
+        // Get department info to fetch role data
+        const department = await CommonDepts.findOne({
+            where: { deptId, isDeleted: false },
+            attributes: ['deptId', 'deptName', 'deptCode']
+        });
+
+        if (!department) {
+            return res.status(404).json({
+                success: false,
+                message: 'Department not found or inactive'
+            });
+        }
+
+        // Fetch the specific user from the same department
+        const user = await CommonUsers.findOne({
+            where: { 
+                uuid,
+                deptId,
+                isDeleted: false 
+            },
+            include: [
+                {
+                    model: CommonDepts,
+                    attributes: ['deptId', 'deptName', 'deptCode'],
+                    required: true
+                },
+                {
+                    model: UserImage,
+                    where: { isActive: true },
+                    attributes: ['imageUrl'],
+                    required: false,
+                    limit: 1,
+                    order: [['createdAt', 'DESC']]
+                }
+            ],
+            attributes: [
+                'uuid', 'username', 'email', 'type', 'deptId',
+                'isFirstLogin', 'needsPasswordChange', 'lastLogin'
+            ]
+        });
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found in your department'
+            });
+        }
+
+        // Get user roles from department-specific tables using raw SQL
+        const userRoleTableName = `${deptId}_${department.deptCode}_user_role`;
+        const roleTableName = `${deptId}_${department.deptCode}_role`;
+        
+        const roleResults = await sequelize.query(
+            `SELECT ur.roleId, r.roleName
+             FROM \`${userRoleTableName}\` ur
+             LEFT JOIN \`${roleTableName}\` r ON ur.roleId = r.roleId
+             WHERE ur.userId = :userId`,
+            {
+                replacements: { userId: user.uuid },
+                type: sequelize.QueryTypes.SELECT
+            }
+        ).catch(err => {
+            console.warn(`Error fetching roles from ${userRoleTableName}:`, err);
+            return []; 
+        });
+
+        const roles = roleResults.map(role => ({
+            id: role.roleId,
+            name: role.roleName || 'Unknown Role'
+        }));
+
+        // Format user data with department and roles
+        const formattedUser = formatUserData(user, user.CommonDept);
+        const processedUser = {
+            ...formattedUser,
+            roles,
+            profileImage: user.UserImages && user.UserImages.length > 0 ? user.UserImages[0].imageUrl : null
+        };
+
+        res.status(200).json({
+            success: true,
+            data: processedUser
+        });
+    } catch (error) {
+        console.error('Error getting department user by ID:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error getting department user by ID',
+            error: error.message
+        });
+    }
+};
+
+// Create a new user in the logged-in user's department
+const createUserForDept = async (req, res) => {
+    try {
+        const { username, email, roleId } = req.body;
+        const { deptId, uuid: creatorId } = req.user; // Get deptId and creator ID from the authenticated user's token
+        
+        // If user doesn't have a department, return error
+        if (!deptId) {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not associated with any department'
+            });
+        }
+
+        if (!username || !email || !roleId) {
+            return res.status(400).json({
+                success: false,
+                message: 'Username, email, and roleId are required'
+            });
+        }
+
+        const { sequelize } = req.app.locals;
+        const { CommonUsers, CommonDepts } = sequelize.models;
+
+        const result = await withTransaction(async (transaction) => {
+            // Get department info to validate and for table names
+            const department = await CommonDepts.findOne({
+                where: { deptId, isDeleted: false },
+                transaction
+            });
+
+            if (!department) {
+                throw new Error('Department not found or inactive');
+            }
+
+            // Validate that the role exists in the department's role table
+            const roleTableName = `${deptId}_${department.deptCode}_role`;
+            const [existingRole] = await sequelize.query(
+                `SELECT roleId, roleName FROM \`${roleTableName}\` 
+                 WHERE roleId = :roleId AND isDeleted = 0 LIMIT 1`,
+                {
+                    replacements: { roleId },
+                    transaction,
+                    type: sequelize.QueryTypes.SELECT
+                }
+            );
+
+            if (!existingRole) {
+                throw new Error(`Invalid role ID for department: ${roleId}`);
+            }
+
+            // Generate temporary password
+            const tempPassword = generateTempPassword();
+            const hashedPassword = await bcrypt.hash(tempPassword, 10);
+
+            // Create user with department ID from token
+            const user = await CommonUsers.create({
+                username,
+                password: null,
+                tempPassword: hashedPassword,
+                email,
+                type: 'dept', // Always 'dept' type for department users
+                deptId: deptId,
+                isFirstLogin: true,
+                needsPasswordChange: true
+            }, { transaction });
+
+            // Insert role assignment in the department's user_role table
+            const userRoleTableName = `${deptId}_${department.deptCode}_user_role`;
+            const currentTimestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+            await sequelize.query(
+                `INSERT INTO \`${userRoleTableName}\` (userId, roleId, createdAt, updatedAt) 
+                 VALUES (:userId, :roleId, :createdAt, :updatedAt)`,
+                {
+                    replacements: { 
+                        userId: user.uuid, 
+                        roleId, 
+                        createdAt: currentTimestamp, 
+                        updatedAt: currentTimestamp 
+                    },
+                    transaction,
+                    type: sequelize.QueryTypes.INSERT
+                }
+            );
+
+            // Send email notification
+            await emailService.sendDepartmentUserEmail(user, tempPassword, department);
+
+            // Log user creation
+            await activityLogService.createActivityLog(sequelize, {
+                activityType: 'USER_CREATED',
+                description: `New department user "${user.username}" created`,
+                userId: creatorId,
+                deptId: deptId,
+                metadata: {
+                    newUserId: user.uuid,
+                    userType: 'dept',
+                    roleId: roleId,
+                    roleName: existingRole.roleName
+                },
+                ipAddress: req.ip
+            }, transaction);
+
+            return { 
+                user, 
+                department, 
+                tempPassword, 
+                role: {
+                    roleId: existingRole.roleId,
+                    roleName: existingRole.roleName
+                }
+            };
+        });
+
+        res.status(201).json({
+            success: true,
+            message: 'Department user created successfully',
+            data: formatUserData(result.user, result.department, result.role)
+        });
+
+    } catch (error) {
+        console.error('Error creating department user:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error creating department user',
+            error: error.message
+        });
+    }
+};
+
+// Edit a user in the logged-in user's department (only username)
+const editDeptUserById = async (req, res) => {
+    try {
+        const { uuid } = req.params;
+        const { username } = req.body;
+        const { deptId, uuid: editorId } = req.user; // Get deptId and editor ID from the authenticated user's token
+        
+        // If user doesn't have a department, return error
+        if (!deptId) {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not associated with any department'
+            });
+        }
+
+        if (!username) {
+            return res.status(400).json({
+                success: false,
+                message: 'Username is required'
+            });
+        }
+
+        const { sequelize } = req.app.locals;
+        const { CommonUsers, CommonDepts } = sequelize.models;
+
+        const result = await withTransaction(async (transaction) => {
+            // Get department info to validate
+            const department = await CommonDepts.findOne({
+                where: { deptId, isDeleted: false },
+                transaction
+            });
+
+            if (!department) {
+                throw new Error('Department not found or inactive');
+            }
+
+            // Find the user and ensure they belong to the same department
+            const user = await CommonUsers.findOne({
+                where: { 
+                    uuid,
+                    deptId,
+                    isDeleted: false 
+                },
+                transaction
+            });
+
+            if (!user) {
+                throw new Error('User not found in your department');
+            }
+
+            // Update only the username
+            await user.update({ username }, { transaction });
+
+            // Log user update
+            await activityLogService.createActivityLog(sequelize, {
+                activityType: 'USER_UPDATED',
+                description: `Department user "${user.email}" username updated`,
+                userId: editorId,
+                deptId: deptId,
+                metadata: {
+                    targetUserId: uuid,
+                    oldUsername: user.username,
+                    newUsername: username
+                },
+                ipAddress: req.ip
+            }, transaction);
+
+            return { user, department };
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Department user updated successfully',
+            data: formatUserData(result.user, result.department)
+        });
+
+    } catch (error) {
+        console.error('Error updating department user:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error updating department user',
+            error: error.message
+        });
+    }
+};
+
 module.exports = {
     createUser,
     listUsers,
@@ -664,5 +1114,9 @@ module.exports = {
     checkEmailAvailability,
     checkUsernameAvailability,
     getUser,
-    getUnassignedUsers
+    getUnassignedUsers,
+    getDeptUsers,
+    getDeptuserById,
+    createUserForDept,
+    editDeptUserById
 };

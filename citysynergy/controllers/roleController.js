@@ -760,6 +760,177 @@ const createDevRole = async (req, res) => {
     }
 };
 
+// Create a new role in the department's dynamically created tables
+const createDeptRole = async (req, res) => {
+    try {
+        const { roleName, roleDescription } = req.body;
+        const { deptId, uuid: creatorId } = req.user; // Get deptId and creator ID from the authenticated user's token
+        
+        // If user doesn't have a department, return error
+        if (!deptId) {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not associated with any department'
+            });
+        }
+
+        if (!roleName) {
+            return res.status(400).json({
+                success: false,
+                message: 'Role name is required'
+            });
+        }
+
+        const { sequelize } = req.app.locals;
+        const { CommonDepts } = sequelize.models;
+
+        const result = await withTransaction(async (transaction) => {
+            // Get department info to validate and for table names
+            const department = await CommonDepts.findOne({
+                where: { deptId, isDeleted: false },
+                transaction
+            });
+
+            if (!department) {
+                throw new Error('Department not found or inactive');
+            }
+
+            const deptCode = department.deptCode;
+            const prefix = `${deptId}_${deptCode}`;
+            
+            // Check if role name already exists in the department
+            const roleTableName = `${prefix}_role`;
+            const [existingRole] = await sequelize.query(
+                `SELECT roleId FROM \`${roleTableName}\` 
+                 WHERE roleName = :roleName AND isDeleted = 0`,
+                {
+                    replacements: { roleName },
+                    transaction,
+                    type: sequelize.QueryTypes.SELECT
+                }
+            );
+
+            if (existingRole) {
+                throw new Error('Role name already exists in this department');
+            }
+
+            // Find highest existing roleId number including deleted roles
+            const [lastRole] = await sequelize.query(
+                `SELECT roleId FROM \`${roleTableName}\` 
+                 ORDER BY CAST(SUBSTRING(roleId, 5) AS UNSIGNED) DESC LIMIT 1`,
+                {
+                    transaction,
+                    type: sequelize.QueryTypes.SELECT
+                }
+            );
+
+            let nextNumber = 1;
+            if (lastRole) {
+                const lastNumber = parseInt(lastRole.roleId.slice(-3));
+                nextNumber = lastNumber + 1;
+            }
+
+            // Generate new role ID with department prefix
+            const roleId = `${deptCode.toUpperCase()}${String(nextNumber).padStart(3, '0')}`;
+            
+            // Create new role in the department's role table
+            const currentTimestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+            await sequelize.query(
+                `INSERT INTO \`${roleTableName}\` 
+                 (roleId, roleName, roleDescription, isDeleted, createdAt, updatedAt) 
+                 VALUES (:roleId, :roleName, :roleDescription, 0, :createdAt, :updatedAt)`,
+                {
+                    replacements: { 
+                        roleId, 
+                        roleName, 
+                        roleDescription: roleDescription || null,
+                        createdAt: currentTimestamp, 
+                        updatedAt: currentTimestamp 
+                    },
+                    transaction,
+                    type: sequelize.QueryTypes.INSERT
+                }
+            );
+
+            // Get all features from the department's feature table
+            const featureTableName = `${prefix}_feature`;
+            const features = await sequelize.query(
+                `SELECT featureId FROM \`${featureTableName}\` WHERE isDeleted = 0`,
+                {
+                    transaction,
+                    type: sequelize.QueryTypes.SELECT
+                }
+            );
+
+            // Create role-feature mappings with only read permission set to true
+            const roleFeatureTableName = `${prefix}_role_feature`;
+            
+            for (const feature of features) {
+                await sequelize.query(
+                    `INSERT INTO \`${roleFeatureTableName}\` 
+                     (roleId, featureId, canRead, canWrite, canUpdate, canDelete, createdAt, updatedAt) 
+                     VALUES (:roleId, :featureId, 1, 0, 0, 0, :createdAt, :updatedAt)`,
+                    {
+                        replacements: { 
+                            roleId, 
+                            featureId: feature.featureId,
+                            createdAt: currentTimestamp, 
+                            updatedAt: currentTimestamp 
+                        },
+                        transaction,
+                        type: sequelize.QueryTypes.INSERT
+                    }
+                );
+            }
+
+            // Log role creation
+            await activityLogService.createActivityLog(sequelize, {
+                activityType: 'ROLE_CREATED',
+                description: `New department role "${roleName}" created`,
+                userId: creatorId,
+                deptId: deptId,
+                metadata: {
+                    roleId,
+                    roleName,
+                    departmentId: deptId,
+                    departmentCode: deptCode
+                },
+                ipAddress: req.ip
+            }, transaction);
+
+            return { 
+                roleId, 
+                roleName, 
+                roleDescription,
+                department
+            };
+        });
+
+        res.status(201).json({
+            success: true,
+            message: 'Department role created successfully',
+            data: {
+                roleId: result.roleId,
+                roleName: result.roleName,
+                roleDescription: result.roleDescription,
+                department: {
+                    deptId: result.department.deptId,
+                    deptName: result.department.deptName,
+                    deptCode: result.department.deptCode
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('Error creating department role:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error creating department role',
+            error: error.message
+        });
+    }
+};
+
 // Add to module.exports
 module.exports = {
     assignRoles,
@@ -770,5 +941,6 @@ module.exports = {
     getDevRolePermissions,
     updateDevRolePermissions,
     deleteDevRole,
-    createDevRole
+    createDevRole,
+    createDeptRole
 };

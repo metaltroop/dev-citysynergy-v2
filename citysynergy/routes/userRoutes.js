@@ -71,6 +71,136 @@ router.post('/check-email', express.json(), userController.checkEmailAvailabilit
 
 /**
  * @swagger
+ * /api/users/department:
+ *   get:
+ *     summary: Get users from the same department as the logged-in user
+ *     tags: [Users]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search term for username or email
+ *     responses:
+ *       200:
+ *         description: List of department users retrieved successfully
+ *       403:
+ *         description: User not associated with any department
+ *       404:
+ *         description: No users found in department or department not found
+ */
+router.get('/department', userController.getDeptUsers);
+
+/**
+ * @swagger
+ * /api/users/department/{uuid}:
+ *   get:
+ *     summary: Get a specific user from the logged-in user's department by ID
+ *     tags: [Users]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: uuid
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: UUID of the user to retrieve
+ *     responses:
+ *       200:
+ *         description: User retrieved successfully
+ *       403:
+ *         description: User not associated with any department
+ *       404:
+ *         description: User not found in department or department not found
+ */
+router.get('/department/:uuid', userController.getDeptuserById);
+
+/**
+ * @swagger
+ * /api/users/department:
+ *   post:
+ *     summary: Create a new user in the logged-in user's department
+ *     tags: [Users]
+ *     security:
+ *       - BearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - username
+ *               - email
+ *               - roleId
+ *             properties:
+ *               username:
+ *                 type: string
+ *                 description: Username for the new user
+ *               email:
+ *                 type: string
+ *                 description: Email for the new user
+ *               roleId:
+ *                 type: string
+ *                 description: Role ID from the department's role table
+ *     responses:
+ *       201:
+ *         description: Department user created successfully
+ *       400:
+ *         description: Missing required fields or invalid input
+ *       403:
+ *         description: User not associated with any department
+ *       500:
+ *         description: Server error
+ */
+router.post('/department', userController.createUserForDept);
+
+/**
+ * @swagger
+ * /api/users/department/{uuid}:
+ *   put:
+ *     summary: Update a user's username in the logged-in user's department
+ *     tags: [Users]
+ *     security:
+ *       - BearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: uuid
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: UUID of the user to update
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - username
+ *             properties:
+ *               username:
+ *                 type: string
+ *                 description: New username for the user
+ *     responses:
+ *       200:
+ *         description: Department user updated successfully
+ *       400:
+ *         description: Missing required fields
+ *       403:
+ *         description: User not associated with any department
+ *       404:
+ *         description: User not found in department
+ *       500:
+ *         description: Server error
+ */
+router.put('/department/:uuid', userController.editDeptUserById);
+
+/**
+ * @swagger
  * /api/users:
  *   get:
  *     summary: Get all users

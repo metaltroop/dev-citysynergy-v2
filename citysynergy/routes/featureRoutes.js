@@ -31,9 +31,9 @@ router.use(authMiddleware);
  */
 
 // Get all dev features with their role permissions
-router.get('/devfeatures',
+router.get('/dev',
     authorizeMiddleware(['Feature Management'], 'canRead'),
     featureController.getDevFeatures
 );
 
-module.exports = router;
+module.exports = router;    
