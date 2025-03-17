@@ -33,10 +33,6 @@ module.exports = (sequelize) => {
             type: DataTypes.STRING,
             allowNull: false
         },
-        IssueSeverity: {
-            type: DataTypes.STRING,
-            allowNull: true
-        },
         IssueDescription: {
             type: DataTypes.TEXT,
             allowNull: true
