@@ -1,2 +1,3 @@
 citysynergy/node_modules
 citysynergy/.env
+citysynergy/scripts/addHierarchyLevelToDeptRoles.js
