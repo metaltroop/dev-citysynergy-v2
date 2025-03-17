@@ -30,6 +30,11 @@ const createDepartmentModels = (sequelize, deptId, deptCode) => {
             description: {
               type: DataTypes.STRING,
             },
+            hierarchyLevel: {
+              type: DataTypes.INTEGER,
+              defaultValue: 100,
+              comment: 'Lower number means higher privilege (e.g., 10 is higher than 50)'
+            },
             isDeleted: {
               type: DataTypes.BOOLEAN,
               defaultValue: false,
@@ -210,33 +215,38 @@ function getExistingDepartmentModels() {
 const initializeDepartmentTables = async (models, transaction) => {
     const { DeptRole, DeptFeature, DeptRoleFeature } = models;
 
-    // Create default department roles
+    // Create default department roles with hierarchy levels
     const roles = await DeptRole.bulkCreate([
         {
             roleId: 'ROLE_HEAD',
             roleName: 'Department Head',
-            description: 'Department Head with all permissions'
+            description: 'Department Head with all permissions',
+            hierarchyLevel: 10
         },
         //admin 
         {
             roleId: 'ROLE_ADMIN',
             roleName: 'Department Admin',
-            description: 'Department Admin with all permissions but the delete permission'
+            description: 'Department Admin with all permissions but the delete permission',
+            hierarchyLevel: 20
         },
         {
             roleId: 'ROLE_RELATIONSHIP_MANAGER',
             roleName: 'Department Relationship Manager',
-            description: 'relation manager with issues and tenders , clashes  access only'
+            description: 'relation manager with issues and tenders , clashes  access only',
+            hierarchyLevel: 50
         }, 
         {
             roleId: 'ROLE_RESOURCE_MANAGER',
             roleName: 'Department Resource Manager',
-            description: 'resource manager with inventory access only'
+            description: 'resource manager with inventory access only',
+            hierarchyLevel: 60
         },
         {
             roleId: 'ROLE_STAFF',
             roleName: 'Department Staff',
-            description: 'Regular department staff'
+            description: 'Regular department staff',
+            hierarchyLevel: 100
         }
     ], { transaction });
 

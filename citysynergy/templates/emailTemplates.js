@@ -215,6 +215,28 @@ const getRoleRemovedNoticeContent = (email) => `
         <p>&copy; ${new Date().getFullYear()} City Synergy</p>
     </div>`;
 
+const getRoleChangedEmailContent = (username, oldRoleName, newRoleName, departmentName) => `
+    <div class="header">
+        <h2>Role Change Notification</h2>
+    </div>
+    <div class="content">
+        <p>Hello ${username},</p>
+        
+        <p>This is to inform you that your role in the <strong>${departmentName}</strong> department has been updated:</p>
+        
+        <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 15px 0;">
+            <p><strong>Previous Role:</strong> ${oldRoleName}</p>
+            <p><strong>New Role:</strong> ${newRoleName}</p>
+        </div>
+        
+        <p>Your previous role has been removed from the system, and you have been temporarily assigned to the ${newRoleName} role.</p>
+        
+        <p>If you believe this change was made in error or have questions about your new permissions, please contact your department administrator.</p>
+    </div>
+    <div class="footer">
+        <p>&copy; ${new Date().getFullYear()} City Synergy</p>
+    </div>`;
+
 module.exports = {
     getBaseTemplate,
     getWelcomeDevUserContent,
@@ -225,5 +247,6 @@ module.exports = {
     getFirstLoginOTPContent,
     getPasswordResetOTP,
     getDepartmentDeletionNoticeContent,
-    getRoleRemovedNoticeContent
+    getRoleRemovedNoticeContent,
+    getRoleChangedEmailContent
 };

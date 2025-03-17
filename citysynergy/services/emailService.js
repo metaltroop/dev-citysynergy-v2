@@ -10,7 +10,8 @@ const {
     getRoleAssignmentContent,
     getFirstLoginOTPContent,
     getDepartmentDeletionNoticeContent,
-    getRoleRemovedNoticeContent
+    getRoleRemovedNoticeContent,
+    getRoleChangedEmailContent
 } = require('../templates/emailTemplates');
 
 class EmailService {
@@ -95,6 +96,20 @@ class EmailService {
     async sendRoleRemovedNotice(user) {
         const subject = 'Important: Role Access Revoked - City Synergy';
         const content = getRoleRemovedNoticeContent(user.email);
+        return this.sendEmail(user.email, subject, content);
+    }
+
+    /**
+     * Send email notification to a user when their role has been deleted and they've been assigned a new role
+     * @param {Object} user - User object with uuid, email, and username
+     * @param {String} oldRoleName - Name of the deleted role
+     * @param {String} newRoleName - Name of the newly assigned role
+     * @param {Object} department - Department object with deptName
+     * @returns {Promise} - Email sending promise
+     */
+    async sendRoleChangedEmail(user, oldRoleName, newRoleName, department) {
+        const subject = `Role Change Notification - ${department.deptName} Department`;
+        const content = getRoleChangedEmailContent(user.username, oldRoleName, newRoleName, department.deptName);
         return this.sendEmail(user.email, subject, content);
     }
 }

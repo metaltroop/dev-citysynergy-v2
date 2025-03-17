@@ -36,4 +36,23 @@ router.get('/dev',
     featureController.getDevFeatures
 );
 
+/**
+ * @swagger
+ * /api/features/deptfeatures:
+ *   get:
+ *     summary: Get all department features
+ *     tags: [Features]
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Features retrieved successfully
+ *       401:
+ *         description: Unauthorized    
+ */
+router.get('/dept',
+    authMiddleware, 
+    featureController.getDeptFeatures
+);
+
 module.exports = router;    

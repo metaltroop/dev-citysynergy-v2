@@ -54,6 +54,62 @@ const getUserMinHierarchyLevel = async (userId, sequelize) => {
     return minLevel;
 };
 
+// Helper function to get a user's minimum hierarchy level in a department (highest privilege)
+const getUserDeptMinHierarchyLevel = async (userId, deptId, deptCode, sequelize, transaction = null) => {
+    try {
+        const userRoleTableName = `${deptId}_${deptCode}_user_role`;
+        const roleTableName = `${deptId}_${deptCode}_role`;
+        
+        // Get all roles assigned to the user in this department
+        const userRoles = await sequelize.query(
+            `SELECT r.roleId, r.roleName, r.hierarchyLevel
+             FROM \`${userRoleTableName}\` ur
+             JOIN \`${roleTableName}\` r ON ur.roleId = r.roleId
+             WHERE ur.userId = :userId AND r.isDeleted = 0`,
+            {
+                replacements: { userId },
+                type: sequelize.QueryTypes.SELECT,
+                transaction
+            }
+        );
+        
+        if (!userRoles || userRoles.length === 0) {
+            return Number.MAX_SAFE_INTEGER; // No roles, lowest privilege
+        }
+        
+        // Helper function to get default hierarchy level based on role name
+        const getDefaultHierarchyLevel = (roleName) => {
+            if (roleName.toLowerCase().includes('head')) {
+                return 10;
+            } else if (roleName.toLowerCase().includes('admin')) {
+                return 20;
+            } else if (roleName.toLowerCase().includes('manager')) {
+                return 50;
+            } else if (roleName.toLowerCase().includes('supervisor')) {
+                return 60;
+            } else if (roleName.toLowerCase().includes('staff')) {
+                return 100;
+            }
+            return 100;
+        };
+        
+        // Find the minimum hierarchy level (highest privilege)
+        // Handle null hierarchyLevel values by using default values based on role name
+        const hierarchyLevels = userRoles.map(role => {
+            if (role.hierarchyLevel === null || role.hierarchyLevel === undefined) {
+                return getDefaultHierarchyLevel(role.roleName);
+            }
+            return role.hierarchyLevel;
+        });
+        
+        const minLevel = Math.min(...hierarchyLevels);
+        return minLevel;
+    } catch (error) {
+        console.error(`Error getting user department hierarchy level: ${error.message}`);
+        return Number.MAX_SAFE_INTEGER; // Return lowest privilege on error
+    }
+};
+
 const assignRoles = async (req, res) => {
     try {
         const { userId, roles } = req.body;
@@ -763,7 +819,7 @@ const createDevRole = async (req, res) => {
 // Create a new role in the department's dynamically created tables
 const createDeptRole = async (req, res) => {
     try {
-        const { roleName, roleDescription } = req.body;
+        const { roleName, roleDescription, hierarchyLevel = 100 } = req.body;
         const { deptId, uuid: creatorId } = req.user; // Get deptId and creator ID from the authenticated user's token
         
         // If user doesn't have a department, return error
@@ -796,6 +852,21 @@ const createDeptRole = async (req, res) => {
             }
 
             const deptCode = department.deptCode;
+            
+            // Get the user's minimum hierarchy level in this department (highest privilege)
+            const userHierarchyLevel = await getUserDeptMinHierarchyLevel(
+                creatorId, 
+                deptId, 
+                deptCode, 
+                sequelize, 
+                transaction
+            );
+            
+            // Check if user has sufficient privileges to create a role at this level
+            if (userHierarchyLevel >= hierarchyLevel) {
+                throw new Error('You cannot create a role with equal or higher privilege than your own. The hierarchyLevel must be higher than your current level.');
+            }
+            
             const prefix = `${deptId}_${deptCode}`;
             
             // Check if role name already exists in the department
@@ -826,24 +897,28 @@ const createDeptRole = async (req, res) => {
 
             let nextNumber = 1;
             if (lastRole) {
-                const lastNumber = parseInt(lastRole.roleId.slice(-3));
-                nextNumber = lastNumber + 1;
+                // Fix the parsing of the last number from the roleId
+                const lastIdMatch = lastRole.roleId.match(/\d+$/);
+                if (lastIdMatch) {
+                    nextNumber = parseInt(lastIdMatch[0]) + 1;
+                }
             }
 
             // Generate new role ID with department prefix
             const roleId = `${deptCode.toUpperCase()}${String(nextNumber).padStart(3, '0')}`;
             
-            // Create new role in the department's role table
+            // Create new role in the department's role table with hierarchy level
             const currentTimestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
             await sequelize.query(
                 `INSERT INTO \`${roleTableName}\` 
-                 (roleId, roleName, roleDescription, isDeleted, createdAt, updatedAt) 
-                 VALUES (:roleId, :roleName, :roleDescription, 0, :createdAt, :updatedAt)`,
+                 (roleId, roleName, description, hierarchyLevel, isDeleted, createdAt, updatedAt) 
+                 VALUES (:roleId, :roleName, :description, :hierarchyLevel, 0, :createdAt, :updatedAt)`,
                 {
                     replacements: { 
                         roleId, 
                         roleName, 
-                        roleDescription: roleDescription || null,
+                        description: roleDescription || null,
+                        hierarchyLevel: parseInt(hierarchyLevel),
                         createdAt: currentTimestamp, 
                         updatedAt: currentTimestamp 
                     },
@@ -885,13 +960,14 @@ const createDeptRole = async (req, res) => {
 
             // Log role creation
             await activityLogService.createActivityLog(sequelize, {
-                activityType: 'ROLE_CREATED',
-                description: `New department role "${roleName}" created`,
+                activityType: 'ROLE_MODIFIED',
+                description: `New department role "${roleName}" created with hierarchy level ${hierarchyLevel}`,
                 userId: creatorId,
                 deptId: deptId,
                 metadata: {
                     roleId,
                     roleName,
+                    hierarchyLevel,
                     departmentId: deptId,
                     departmentCode: deptCode
                 },
@@ -902,6 +978,7 @@ const createDeptRole = async (req, res) => {
                 roleId, 
                 roleName, 
                 roleDescription,
+                hierarchyLevel,
                 department
             };
         });
@@ -913,6 +990,7 @@ const createDeptRole = async (req, res) => {
                 roleId: result.roleId,
                 roleName: result.roleName,
                 roleDescription: result.roleDescription,
+                hierarchyLevel: result.hierarchyLevel,
                 department: {
                     deptId: result.department.deptId,
                     deptName: result.department.deptName,
@@ -931,6 +1009,615 @@ const createDeptRole = async (req, res) => {
     }
 };
 
+// Get roles for the logged-in user's department with hierarchy information
+const getDeptRoles = async (req, res) => {
+    try {
+        const { deptId } = req.user; // Get deptId from the authenticated user's token
+        
+        // If user doesn't have a department, return error
+        if (!deptId) {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not associated with any department'
+            });
+        }
+
+        const { sequelize } = req.app.locals;
+        const { CommonDepts } = sequelize.models;
+
+        // Get department info to validate and for table names
+        const department = await CommonDepts.findOne({
+            where: { deptId, isDeleted: false }
+        });
+
+        if (!department) {
+            return res.status(404).json({
+                success: false,
+                message: 'Department not found or inactive'
+            });
+        }
+
+        const deptCode = department.deptCode;
+        const prefix = `${deptId}_${deptCode}`;
+        
+        // Get roles from the department's role table with hierarchy information
+        const roleTableName = `${prefix}_role`;
+        const roles = await sequelize.query(
+            `SELECT roleId, roleName, description, hierarchyLevel, createdAt, updatedAt 
+             FROM \`${roleTableName}\` 
+             WHERE isDeleted = 0 
+             ORDER BY hierarchyLevel ASC`,
+            { type: sequelize.QueryTypes.SELECT }
+        );
+
+        // Get feature permissions for each role
+        const roleFeatureTableName = `${prefix}_role_feature`;
+        const featureTableName = `${prefix}_feature`;
+        
+        const rolesWithPermissions = await Promise.all(roles.map(async (role) => {
+            const permissions = await sequelize.query(
+                `SELECT rf.featureId, f.featureName, rf.canRead, rf.canWrite, rf.canUpdate, rf.canDelete 
+                 FROM \`${roleFeatureTableName}\` rf
+                 JOIN \`${featureTableName}\` f ON rf.featureId = f.featureId
+                 WHERE rf.roleId = :roleId AND f.isDeleted = 0`,
+                {
+                    replacements: { roleId: role.roleId },
+                    type: sequelize.QueryTypes.SELECT
+                }
+            );
+            
+            return {
+                ...role,
+                features: permissions.map(perm => ({
+                    featureId: perm.featureId,
+                    featureName: perm.featureName,
+                    permissions: {
+                        canRead: Boolean(perm.canRead),
+                        canWrite: Boolean(perm.canWrite),
+                        canUpdate: Boolean(perm.canUpdate),
+                        canDelete: Boolean(perm.canDelete)
+                    }
+                }))
+            };
+        }));
+
+        res.status(200).json({
+            success: true,
+            message: `Roles fetched successfully for ${department.deptName}`,
+            data: {
+                department: {
+                    deptId: department.deptId,
+                    deptName: department.deptName,
+                    deptCode: department.deptCode
+                },
+                roles: rolesWithPermissions
+            }
+        });
+    } catch (error) {
+        console.error('Error getting department roles:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error getting department roles',
+            error: error.message
+        });
+    }
+};
+
+//get role by id  for the logged in users department with hierarchy information with permissions and features form {prefix}_feature table and  permissions from {prefix}_role_feature table
+const getDeptRoleById = async (req, res) => {
+    try {
+        const { roleId } = req.params;
+        const { deptId } = req.user; // Get deptId from the authenticated user's token
+
+        const { sequelize } = req.app.locals;
+        const { CommonDepts } = sequelize.models;
+
+        const department = await CommonDepts.findOne({
+            where: { deptId, isDeleted: false }
+        }); 
+
+        if (!department) {
+            return res.status(404).json({
+                success: false,
+                message: 'Department not found or inactive'
+            });
+        }
+
+        const deptCode = department.deptCode;
+        const prefix = `${deptId}_${deptCode}`;
+
+        const roleTableName = `${prefix}_role`;
+        const role = await sequelize.query(
+            `SELECT roleId, roleName, description, hierarchyLevel, createdAt, updatedAt 
+             FROM \`${roleTableName}\` 
+             WHERE roleId = :roleId AND isDeleted = 0`,
+            {
+                replacements: { roleId },
+                type: sequelize.QueryTypes.SELECT   
+            }
+        );
+
+        if (!role) {
+            return res.status(404).json({
+                success: false, 
+                message: 'Role not found or inactive'
+            });
+        }
+
+        const roleFeatureTableName = `${prefix}_role_feature`;
+        const featureTableName = `${prefix}_feature`;
+
+        const roleFeatures = await sequelize.query(
+            `SELECT rf.featureId, f.featureName, rf.canRead, rf.canWrite, rf.canUpdate, rf.canDelete 
+             FROM \`${roleFeatureTableName}\` rf    
+             JOIN \`${featureTableName}\` f ON rf.featureId = f.featureId
+             WHERE rf.roleId = :roleId AND f.isDeleted = 0`,
+            {
+                replacements: { roleId },
+                type: sequelize.QueryTypes.SELECT
+            }   
+        );
+
+        const roleWithPermissions = {
+            ...role,
+            features: roleFeatures.map(perm => ({
+                featureId: perm.featureId,
+                featureName: perm.featureName,
+                permissions: {
+                    canRead: Boolean(perm.canRead),
+                    canWrite: Boolean(perm.canWrite),
+                    canUpdate: Boolean(perm.canUpdate),
+                    canDelete: Boolean(perm.canDelete)
+                }
+            }))
+        };
+
+        res.status(200).json({
+            success: true,
+            message: 'Role fetched successfully',
+            data: roleWithPermissions
+        });
+    } catch (error) {
+        console.error('Error getting department role by ID:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error getting department role by ID',
+            error: error.message
+        });
+    }
+};  
+
+// Update permissions for a department role
+const updateDeptRolePermissions = async (req, res) => {
+    try {
+        const { roleId } = req.params;
+        const { permissions } = req.body;
+        const { deptId, uuid: editorId } = req.user; // Get deptId and editor ID from the authenticated user's token
+        
+        // If user doesn't have a department, return error
+        if (!deptId) {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not associated with any department'
+            });
+        }
+
+        if (!permissions || !Array.isArray(permissions) || permissions.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Permissions array is required'
+            });
+        }
+
+        const { sequelize } = req.app.locals;
+        const { CommonDepts } = sequelize.models;
+
+        const result = await withTransaction(async (transaction) => {
+            // Get department info to validate and for table names
+            const department = await CommonDepts.findOne({
+                where: { deptId, isDeleted: false },
+                transaction
+            });
+
+            if (!department) {
+                throw new Error('Department not found or inactive');
+            }
+
+            const deptCode = department.deptCode;
+            const prefix = `${deptId}_${deptCode}`;
+            
+            // Get the role to be updated
+            const roleTableName = `${prefix}_role`;
+            const [targetRole] = await sequelize.query(
+                `SELECT roleId, roleName, hierarchyLevel 
+                 FROM \`${roleTableName}\` 
+                 WHERE roleId = :roleId AND isDeleted = 0`,
+                {
+                    replacements: { roleId },
+                    type: sequelize.QueryTypes.SELECT,
+                    transaction
+                }
+            );
+
+            if (!targetRole) {
+                throw new Error('Role not found or inactive');
+            }
+            
+            // Get the user's minimum hierarchy level in this department (highest privilege)
+            const userHierarchyLevel = await getUserDeptMinHierarchyLevel(
+                editorId, 
+                deptId, 
+                deptCode, 
+                sequelize, 
+                transaction
+            );
+            
+            // Check if user has sufficient privileges to modify this role
+            if (userHierarchyLevel >= targetRole.hierarchyLevel) {
+                throw new Error('You do not have permission to modify this role. You can only modify roles with a lower privilege level than your own.');
+            }
+            
+            // Update permissions for each feature
+            const roleFeatureTableName = `${prefix}_role_feature`;
+            
+            for (const perm of permissions) {
+                if (!perm.featureId) {
+                    continue; // Skip entries without featureId
+                }
+                
+                // Ensure boolean values for permissions
+                const canRead = perm.canRead ? 1 : 0;
+                const canWrite = perm.canWrite ? 1 : 0;
+                const canUpdate = perm.canUpdate ? 1 : 0;
+                const canDelete = perm.canDelete ? 1 : 0;
+                
+                // Check if role-feature mapping exists
+                const [existingMapping] = await sequelize.query(
+                    `SELECT id FROM \`${roleFeatureTableName}\` 
+                     WHERE roleId = :roleId AND featureId = :featureId`,
+                    {
+                        replacements: { 
+                            roleId, 
+                            featureId: perm.featureId 
+                        },
+                        type: sequelize.QueryTypes.SELECT,
+                        transaction
+                    }
+                );
+                
+                if (existingMapping) {
+                    // Update existing mapping
+                    await sequelize.query(
+                        `UPDATE \`${roleFeatureTableName}\` 
+                         SET canRead = :canRead, canWrite = :canWrite, 
+                             canUpdate = :canUpdate, canDelete = :canDelete,
+                             updatedAt = :updatedAt
+                         WHERE roleId = :roleId AND featureId = :featureId`,
+                        {
+                            replacements: { 
+                                roleId, 
+                                featureId: perm.featureId,
+                                canRead,
+                                canWrite,
+                                canUpdate,
+                                canDelete,
+                                updatedAt: new Date().toISOString().slice(0, 19).replace('T', ' ')
+                            },
+                            transaction
+                        }
+                    );
+                } else {
+                    // Create new mapping if it doesn't exist
+                    const currentTimestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+                    await sequelize.query(
+                        `INSERT INTO \`${roleFeatureTableName}\` 
+                         (roleId, featureId, canRead, canWrite, canUpdate, canDelete, createdAt, updatedAt) 
+                         VALUES (:roleId, :featureId, :canRead, :canWrite, :canUpdate, :canDelete, :createdAt, :updatedAt)`,
+                        {
+                            replacements: { 
+                                roleId, 
+                                featureId: perm.featureId,
+                                canRead,
+                                canWrite,
+                                canUpdate,
+                                canDelete,
+                                createdAt: currentTimestamp,
+                                updatedAt: currentTimestamp
+                            },
+                            transaction
+                        }
+                    );
+                }
+            }
+            
+            // Log permission update
+            await activityLogService.createActivityLog(sequelize, {
+                activityType: 'ROLE_MODIFIED',
+                description: `Department role "${targetRole.roleName}" permissions updated`,
+                userId: editorId,
+                deptId: deptId,
+                metadata: {
+                    roleId: targetRole.roleId,
+                    roleName: targetRole.roleName,
+                    updatedPermissions: permissions.map(p => ({
+                        featureId: p.featureId,
+                        canRead: Boolean(p.canRead),
+                        canWrite: Boolean(p.canWrite),
+                        canUpdate: Boolean(p.canUpdate),
+                        canDelete: Boolean(p.canDelete)
+                    }))
+                },
+                ipAddress: req.ip
+            }, transaction);
+            
+            return { 
+                role: targetRole,
+                department
+            };
+        });
+
+        res.status(200).json({
+            success: true,
+            message: 'Role permissions updated successfully',
+            data: {
+                roleId: result.role.roleId,
+                roleName: result.role.roleName,
+                department: {
+                    deptId: result.department.deptId,
+                    deptName: result.department.deptName,
+                    deptCode: result.department.deptCode
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Error updating department role permissions:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error updating department role permissions',
+            error: error.message
+        });
+    }
+};
+
+// Soft delete a department role by ID
+const softDeleteDeptRoleById = async (req, res) => {
+    try {
+        const { roleId } = req.params;
+        const { deptId, uuid: deleterId } = req.user; // Get deptId and deleter ID from the authenticated user's token
+        
+        // If user doesn't have a department, return error
+        if (!deptId) {
+            return res.status(403).json({
+                success: false,
+                message: 'You are not associated with any department'
+            });
+        }
+
+        const { sequelize } = req.app.locals;
+        const { CommonDepts, CommonUsers } = sequelize.models;
+
+        const result = await withTransaction(async (transaction) => {
+            // Get department info to validate and for table names
+            const department = await CommonDepts.findOne({
+                where: { deptId, isDeleted: false },
+                transaction
+            });
+
+            if (!department) {
+                throw new Error('Department not found or inactive');
+            }
+
+            const deptCode = department.deptCode;
+            const prefix = `${deptId}_${deptCode}`;
+            
+            // Get the role to be deleted
+            const roleTableName = `${prefix}_role`;
+            const [targetRole] = await sequelize.query(
+                `SELECT roleId, roleName, hierarchyLevel 
+                 FROM \`${roleTableName}\` 
+                 WHERE roleId = :roleId AND isDeleted = 0`,
+                {
+                    replacements: { roleId },
+                    type: sequelize.QueryTypes.SELECT,
+                    transaction
+                }
+            );
+
+            if (!targetRole) {
+                throw new Error('Role not found or already deleted');
+            }
+            
+            // Get the user's minimum hierarchy level in this department (highest privilege)
+            const userHierarchyLevel = await getUserDeptMinHierarchyLevel(
+                deleterId, 
+                deptId, 
+                deptCode, 
+                sequelize, 
+                transaction
+            );
+            
+            // Check if user has sufficient privileges to delete this role
+            if (userHierarchyLevel >= targetRole.hierarchyLevel) {
+                throw new Error('You do not have permission to delete this role. You can only delete roles with a lower privilege level than your own.');
+            }
+            
+            // Find the lowest hierarchy role (ROLE_STAFF or similar)
+            const [lowestHierarchyRole] = await sequelize.query(
+                `SELECT roleId, roleName, hierarchyLevel 
+                 FROM \`${roleTableName}\` 
+                 WHERE isDeleted = 0 AND roleId != :roleId
+                 ORDER BY hierarchyLevel DESC 
+                 LIMIT 1`,
+                {
+                    replacements: { roleId },
+                    type: sequelize.QueryTypes.SELECT,
+                    transaction
+                }
+            );
+            
+            if (!lowestHierarchyRole) {
+                throw new Error('Cannot delete the only role in the department');
+            }
+            
+            // Find all users with this role
+            const userRoleTableName = `${prefix}_user_role`;
+            const usersWithRole = await sequelize.query(
+                `SELECT ur.userId, u.email, u.username
+                 FROM \`${userRoleTableName}\` ur
+                 JOIN common_users u ON ur.userId = u.uuid
+                 WHERE ur.roleId = :roleId`,
+                {
+                    replacements: { roleId },
+                    type: sequelize.QueryTypes.SELECT,
+                    transaction
+                }
+            );
+            
+            // Process each user with this role
+            const affectedUsers = [];
+            for (const user of usersWithRole) {
+                // Check if user has other roles in this department
+                const [otherRoles] = await sequelize.query(
+                    `SELECT COUNT(*) as count
+                     FROM \`${userRoleTableName}\` 
+                     WHERE userId = :userId AND roleId != :roleId`,
+                    {
+                        replacements: { 
+                            userId: user.userId,
+                            roleId
+                        },
+                        type: sequelize.QueryTypes.SELECT,
+                        transaction
+                    }
+                );
+                
+                // If user has no other roles, assign the lowest hierarchy role
+                if (otherRoles.count === 0) {
+                    // Check if user already has the lowest hierarchy role
+                    const [hasLowestRole] = await sequelize.query(
+                        `SELECT COUNT(*) as count
+                         FROM \`${userRoleTableName}\` 
+                         WHERE userId = :userId AND roleId = :lowestRoleId`,
+                        {
+                            replacements: { 
+                                userId: user.userId,
+                                lowestRoleId: lowestHierarchyRole.roleId
+                            },
+                            type: sequelize.QueryTypes.SELECT,
+                            transaction
+                        }
+                    );
+                    
+                    if (hasLowestRole.count === 0) {
+                        // Assign the lowest hierarchy role
+                        const currentTimestamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+                        await sequelize.query(
+                            `INSERT INTO \`${userRoleTableName}\` 
+                             (userId, roleId, createdAt, updatedAt) 
+                             VALUES (:userId, :roleId, :createdAt, :updatedAt)`,
+                            {
+                                replacements: { 
+                                    userId: user.userId,
+                                    roleId: lowestHierarchyRole.roleId,
+                                    createdAt: currentTimestamp,
+                                    updatedAt: currentTimestamp
+                                },
+                                transaction
+                            }
+                        );
+                        
+                        // Add user to affected users list for email notification
+                        affectedUsers.push({
+                            userId: user.userId,
+                            email: user.email,
+                            username: user.username,
+                            newRoleId: lowestHierarchyRole.roleId,
+                            newRoleName: lowestHierarchyRole.roleName
+                        });
+                    }
+                }
+            }
+            
+            // Remove all role assignments for the deleted role
+            await sequelize.query(
+                `DELETE FROM \`${userRoleTableName}\` WHERE roleId = :roleId`,
+                {
+                    replacements: { roleId },
+                    transaction
+                }
+            );
+            
+            // Soft delete the role
+            await sequelize.query(
+                `UPDATE \`${roleTableName}\` 
+                 SET isDeleted = 1, updatedAt = :updatedAt
+                 WHERE roleId = :roleId`,
+                {
+                    replacements: { 
+                        roleId,
+                        updatedAt: new Date().toISOString().slice(0, 19).replace('T', ' ')
+                    },
+                    transaction
+                }
+            );
+            
+            // Log role deletion
+            await activityLogService.createActivityLog(sequelize, {
+                activityType: 'ROLE_MODIFIED',
+                description: `Department role "${targetRole.roleName}" deleted`,
+                userId: deleterId,
+                deptId: deptId,
+                metadata: {
+                    roleId: targetRole.roleId,
+                    roleName: targetRole.roleName,
+                    hierarchyLevel: targetRole.hierarchyLevel,
+                    affectedUsers: affectedUsers.map(u => u.userId)
+                },
+                ipAddress: req.ip
+            }, transaction);
+            
+            return { 
+                role: targetRole,
+                department,
+                lowestHierarchyRole,
+                affectedUsers
+            };
+        });
+        
+        // Send email notifications to affected users
+        for (const user of result.affectedUsers) {
+            await emailService.sendRoleChangedEmail(
+                { uuid: user.userId, email: user.email, username: user.username },
+                result.role.roleName,
+                result.lowestHierarchyRole.roleName,
+                result.department
+            ).catch(err => console.error(`Failed to send email to ${user.email}:`, err));
+        }
+
+        res.status(200).json({
+            success: true,
+            message: 'Department role deleted successfully',
+            data: {
+                roleId: result.role.roleId,
+                roleName: result.role.roleName,
+                department: {
+                    deptId: result.department.deptId,
+                    deptName: result.department.deptName,
+                    deptCode: result.department.deptCode
+                },
+                usersAffected: result.affectedUsers.length
+            }
+        });
+    } catch (error) {
+        console.error('Error deleting department role:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error deleting department role',
+            error: error.message
+        });
+    }
+};
+
 // Add to module.exports
 module.exports = {
     assignRoles,
@@ -942,5 +1629,9 @@ module.exports = {
     updateDevRolePermissions,
     deleteDevRole,
     createDevRole,
-    createDeptRole
+    createDeptRole,
+    getDeptRoles,
+    getDeptRoleById,
+    updateDeptRolePermissions,
+    softDeleteDeptRoleById
 };
