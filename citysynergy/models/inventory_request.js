@@ -33,6 +33,13 @@ module.exports = (sequelize) => {
                 key: 'deptId'
             }
         },
+        quantity: {
+            type: DataTypes.INTEGER,
+            allowNull: false,
+            validate: {
+                min: 1
+            }
+        },
         requestStatus: {
             type: DataTypes.ENUM('pending', 'approved', 'rejected'),
             defaultValue: 'pending'

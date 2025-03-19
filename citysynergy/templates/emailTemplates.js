@@ -237,6 +237,64 @@ const getRoleChangedEmailContent = (username, oldRoleName, newRoleName, departme
         <p>&copy; ${new Date().getFullYear()} City Synergy</p>
     </div>`;
 
+const getInventoryRequestNotificationContent = (itemName, quantity, status, departmentName) => `
+    <div class="header">
+        <h2>Inventory Request ${status.toUpperCase()}</h2>
+    </div>
+    <div class="content">
+        <p>Hello,</p>
+        <p>Your request for inventory items has been ${status}.</p>
+        <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 15px 0;">
+            <p><strong>Item:</strong> ${itemName}</p>
+            <p><strong>Quantity:</strong> ${quantity}</p>
+            <p><strong>Department:</strong> ${departmentName}</p>
+            <p><strong>Status:</strong> ${status.toUpperCase()}</p>
+        </div>
+        <p>You can view the details of this request in your inventory dashboard.</p>
+        <a href="${process.env.FRONTEND_URL}/inventory/requests" class="button">View Request Details</a>
+    </div>
+    <div class="footer">
+        <p>&copy; ${new Date().getFullYear()} City Synergy</p>
+    </div>`;
+
+const getInventoryShareNotificationContent = (itemName, quantity, departmentName) => `
+    <div class="header">
+        <h2>New Inventory Share</h2>
+    </div>
+    <div class="content">
+        <p>Hello,</p>
+        <p>A new inventory item has been shared with your department.</p>
+        <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 15px 0;">
+            <p><strong>Item:</strong> ${itemName}</p>
+            <p><strong>Quantity Available:</strong> ${quantity}</p>
+            <p><strong>Sharing Department:</strong> ${departmentName}</p>
+        </div>
+        <p>You can view and request this item in your inventory dashboard.</p>
+        <a href="${process.env.FRONTEND_URL}/inventory/sharing" class="button">View Shared Items</a>
+    </div>
+    <div class="footer">
+        <p>&copy; ${new Date().getFullYear()} City Synergy</p>
+    </div>`;
+
+const getInventoryReturnNotificationContent = (itemName, quantity, departmentName) => `
+    <div class="header">
+        <h2>Inventory Return Notification</h2>
+    </div>
+    <div class="content">
+        <p>Hello,</p>
+        <p>Items have been returned to your department.</p>
+        <div style="background-color: #f5f5f5; padding: 15px; border-radius: 5px; margin: 15px 0;">
+            <p><strong>Item:</strong> ${itemName}</p>
+            <p><strong>Quantity Returned:</strong> ${quantity}</p>
+            <p><strong>Returning Department:</strong> ${departmentName}</p>
+        </div>
+        <p>You can view the updated inventory in your dashboard.</p>
+        <a href="${process.env.FRONTEND_URL}/inventory" class="button">View Inventory</a>
+    </div>
+    <div class="footer">
+        <p>&copy; ${new Date().getFullYear()} City Synergy</p>
+    </div>`;
+
 module.exports = {
     getBaseTemplate,
     getWelcomeDevUserContent,
@@ -248,5 +306,8 @@ module.exports = {
     getPasswordResetOTP,
     getDepartmentDeletionNoticeContent,
     getRoleRemovedNoticeContent,
-    getRoleChangedEmailContent
+    getRoleChangedEmailContent,
+    getInventoryRequestNotificationContent,
+    getInventoryShareNotificationContent,
+    getInventoryReturnNotificationContent
 };

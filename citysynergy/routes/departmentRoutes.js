@@ -256,12 +256,21 @@ router.post(
     departmentController.assignFeaturesToRole
 );
 
-
+/**
+ * @swagger
+ * /api/departments/get-dept-list:
+ *   get:
+ *     summary: Get department list
+ *     tags: [Departments]
+    *     security:
+ *       - BearerAuth: []
+ */
 router.post(
     '/get-dept-list',
     authorizeMiddleware(['Department Management'], 'canRead'),
     departmentController.getDeptList
 );
+
 
 router.put( '/delete-dept/:deptId',
     authorizeMiddleware(['Department Management'], 'canDelete'),

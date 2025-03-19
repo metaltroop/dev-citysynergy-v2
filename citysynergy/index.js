@@ -17,6 +17,7 @@ const profileRoutes = require('./routes/profileRoutes');
 const roleRoutes = require('./routes/roleRoutes');
 const featureRoutes = require('./routes/featureRoutes');
 const activityRoutes = require('./routes/activityRoutes');
+const inventoryRoutes = require('./routes/inventoryRoutes');
 
 const app = express();
 
@@ -74,6 +75,7 @@ app.use('/api/profile', profileRoutes);
 app.use('/api/roles', roleRoutes);
 app.use('/api/features', featureRoutes);
 app.use('/api/activity', activityRoutes);
+app.use('/api/inventory', inventoryRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

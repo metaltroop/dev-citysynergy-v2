@@ -11,11 +11,29 @@ const {
     getFirstLoginOTPContent,
     getDepartmentDeletionNoticeContent,
     getRoleRemovedNoticeContent,
-    getRoleChangedEmailContent
+    getRoleChangedEmailContent,
+    getInventoryRequestNotificationContent,
+    getInventoryShareNotificationContent,
+    getInventoryReturnNotificationContent
 } = require('../templates/emailTemplates');
 
 class EmailService {
     constructor() {
+        console.log('Initializing email service with SMTP configuration:');
+        console.log({
+            host: process.env.SMTP_HOST,
+            port: process.env.SMTP_PORT,
+            secure: process.env.SMTP_SECURE === 'true',
+            auth: {
+                user: process.env.SMTP_USER,
+                pass: process.env.SMTP_PASS ? '[REDACTED]' : 'MISSING'
+            }
+        });
+        
+        if (!process.env.SMTP_HOST || !process.env.SMTP_PORT || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+            console.error('WARNING: Missing SMTP configuration. Email service will not work properly!');
+        }
+        
         this.transporter = nodemailer.createTransport({
             host: process.env.SMTP_HOST,
             port: process.env.SMTP_PORT,
@@ -25,10 +43,22 @@ class EmailService {
                 pass: process.env.SMTP_PASS
             }
         });
+        
+        // Verify connection configuration
+        this.transporter.verify((error, success) => {
+            if (error) {
+                console.error('SMTP connection verification failed:', error);
+            } else {
+                console.log('SMTP server is ready to take messages');
+            }
+        });
     }
 
     async sendEmail(to, subject, content) {
         try {
+            console.log(`Attempting to send email to ${to} with subject "${subject}"`);
+            console.log(`SMTP Config: Host=${process.env.SMTP_HOST}, Port=${process.env.SMTP_PORT}, Secure=${process.env.SMTP_SECURE}`);
+            
             const mailOptions = {
                 from: `"City Synergy" <${process.env.SMTP_USER}>`,
                 to,
@@ -36,11 +66,19 @@ class EmailService {
                 html: getBaseTemplate(content)
             };
 
+            console.log(`Mail options prepared. Sending from ${process.env.SMTP_USER} to ${to}`);
             const info = await this.transporter.sendMail(mailOptions);
-            console.log('Email sent:', info.messageId);
+            console.log('Email sent successfully:', info.messageId);
             return true;
         } catch (error) {
             console.error('Error sending email:', error);
+            console.error('Email error details:', {
+                code: error.code,
+                command: error.command,
+                response: error.response,
+                responseCode: error.responseCode,
+                stack: error.stack
+            });
             throw error;
         }
     }
@@ -110,6 +148,24 @@ class EmailService {
     async sendRoleChangedEmail(user, oldRoleName, newRoleName, department) {
         const subject = `Role Change Notification - ${department.deptName} Department`;
         const content = getRoleChangedEmailContent(user.username, oldRoleName, newRoleName, department.deptName);
+        return this.sendEmail(user.email, subject, content);
+    }
+
+    async sendInventoryRequestNotification(user, itemName, quantity, status, departmentName) {
+        const subject = `Inventory Request ${status.toUpperCase()} - City Synergy`;
+        const content = getInventoryRequestNotificationContent(itemName, quantity, status, departmentName);
+        return this.sendEmail(user.email, subject, content);
+    }
+
+    async sendInventoryShareNotification(user, itemName, quantity, departmentName) {
+        const subject = 'New Inventory Share - City Synergy';
+        const content = getInventoryShareNotificationContent(itemName, quantity, departmentName);
+        return this.sendEmail(user.email, subject, content);
+    }
+
+    async sendInventoryReturnNotification(user, itemName, quantity, departmentName) {
+        const subject = 'Inventory Return Notification - City Synergy';
+        const content = getInventoryReturnNotificationContent(itemName, quantity, departmentName);
         return this.sendEmail(user.email, subject, content);
     }
 }

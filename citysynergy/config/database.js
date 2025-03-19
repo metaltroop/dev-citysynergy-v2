@@ -78,6 +78,7 @@ const initializeDatabase = async () => {
         sequelize.models.CommonIssues = require('../models/common_issues')(sequelize);
         sequelize.models.CommonInventory = require('../models/common_inventory')(sequelize);
         sequelize.models.InventoryRequest = require('../models/inventory_request')(sequelize);
+        sequelize.models.InventoryHistory = require('../models/inventory_history')(sequelize);
         sequelize.models.ActivityLog = require('../models/activity_log')(sequelize);
         sequelize.models.UserImage = require('../models/user_images')(sequelize);
         
@@ -98,6 +99,7 @@ const initializeDatabase = async () => {
             CommonIssues,
             CommonInventory,
             InventoryRequest,
+            InventoryHistory,
             ActivityLog,
             UserImage
         } = sequelize.models;
@@ -165,12 +167,43 @@ const initializeDatabase = async () => {
 
         CommonInventory.belongsTo(CommonDepts, {
             foreignKey: 'deptId',
-            targetKey: 'deptId'
+            as: 'department'
+        });
+
+        CommonInventory.belongsTo(CommonDepts, {
+            foreignKey: 'borrowedFromDeptId',
+            as: 'borrowedFromDepartment'
+        });
+
+        CommonInventory.belongsTo(CommonUsers, {
+            foreignKey: 'lastUpdatedBy',
+            as: 'updatedByUser'
         });
 
         InventoryRequest.belongsTo(CommonDepts, {
-            foreignKey: 'deptId',
-            targetKey: 'deptId'
+            foreignKey: 'fromDept',
+            as: 'fromDepartment'
+        });
+
+        InventoryRequest.belongsTo(CommonDepts, {
+            foreignKey: 'forDept',
+            as: 'forDepartment'
+        });
+
+        InventoryRequest.belongsTo(CommonInventory, {
+            foreignKey: 'itemId',
+            targetKey: 'itemId'
+        });
+
+        InventoryHistory.belongsTo(CommonInventory, {
+            foreignKey: 'itemId',
+            targetKey: 'itemId'
+        });
+
+        InventoryHistory.belongsTo(CommonUsers, {
+            foreignKey: 'performedBy',
+            targetKey: 'uuid',
+            as: 'performer'
         });
 
         // Dev user role associations
@@ -276,6 +309,7 @@ const initializeDatabase = async () => {
             CommonIssues.sync().then(() => console.log('✓ CommonIssues table synchronized')),
             CommonInventory.sync().then(() => console.log('✓ CommonInventory table synchronized')),
             InventoryRequest.sync().then(() => console.log('✓ InventoryRequest table synchronized')),
+            InventoryHistory.sync().then(() => console.log('✓ InventoryHistory table synchronized')),
             ActivityLog.sync().then(() => console.log('✓ ActivityLog table synchronized')),
             UserImage.sync().then(() => console.log('✓ UserImage table synchronized'))
         ]);

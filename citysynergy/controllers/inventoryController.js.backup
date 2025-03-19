@@ -1,0 +1,882 @@
+const { Op } = require('sequelize');
+const { withTransaction } = require('../utils/transactionManager');
+const emailService = require('../services/emailService');
+
+// Resource Management Controllers
+
+const createResource = async (req, res) => {
+    try {
+        const { itemName, itemCategory, itemDescription, totalItems, isSharable } = req.body;
+        const deptId = req.user.deptId;
+        const { sequelize } = req.app.locals;
+        const { CommonInventory, InventoryHistory } = sequelize.models;
+
+        const result = await withTransaction(async (transaction) => {
+            const item = await CommonInventory.create({
+                deptId,
+                itemName,
+                itemCategory,
+                itemDescription,
+                totalItems,
+                availableItems: totalItems,
+                sharedItems: 0,
+                isSharable,
+                isBorrowed: false,
+                borrowedFromDeptId: null,
+                borrowedQuantity: 0,
+                lastUpdatedBy: req.user.uuid
+            }, { transaction });
+
+            // Record in history
+            await InventoryHistory.create({
+                itemId: item.itemId,
+                action: 'created',
+                newValue: item.toJSON(),
+                performedBy: req.user.uuid
+            }, { transaction });
+
+            return { item };
+        });
+
+        res.status(201).json({
+            success: true,
+            data: result.item
+        });
+    } catch (error) {
+        console.error('Error creating resource:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+const listDepartmentResources = async (req, res) => {
+    try {
+        const { sequelize } = req.app.locals;
+        const { CommonInventory, CommonDepts } = sequelize.models;
+
+        const items = await CommonInventory.findAll({
+            where: {
+                deptId: req.user.deptId,
+                isDeleted: false
+            },
+            include: [
+                {
+                    model: CommonDepts,
+                    as: 'department',
+                    attributes: ['deptName']
+                },
+                {
+                    model: CommonDepts,
+                    as: 'borrowedFromDepartment',
+                    attributes: ['deptName'],
+                    required: false
+                }
+            ]
+        });
+        res.json({
+            success: true,
+            data: items
+        });
+    } catch (error) {
+        console.error('Error listing department resources:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+const getInventoryHistory = async (req, res) => {
+    try {
+        const { sequelize } = req.app.locals;
+        const { InventoryHistory, CommonUsers } = sequelize.models;
+
+        const history = await InventoryHistory.findAll({
+            where: {
+                itemId: {
+                    [Op.in]: sequelize.literal(`(SELECT itemId FROM common_inventory WHERE deptId = '${req.user.deptId}')`)
+                }
+            },
+            include: [{
+                model: CommonUsers,
+                attributes: ['username'],
+                as: 'performer'
+            }],
+            order: [['createdAt', 'DESC']]
+        });
+        res.json({
+            success: true,
+            data: history
+        });
+    } catch (error) {
+        console.error('Error getting inventory history:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+const getSharableResources = async (req, res) => {
+    try {
+        const { sequelize } = req.app.locals;
+        const { CommonInventory, CommonDepts } = sequelize.models;
+
+        const items = await CommonInventory.findAll({
+            where: {
+                isSharable: true,
+                sharedItems: {
+                    [Op.gt]: 0
+                },
+                deptId: {
+                    [Op.ne]: req.user.deptId
+                },
+                isDeleted: false
+            },
+            include: [{
+                model: CommonDepts,
+                as: 'department',
+                attributes: ['deptName', 'deptCode']
+            }]
+        });
+        res.json({
+            success: true,
+            data: items
+        });
+    } catch (error) {
+        console.error('Error getting sharable resources:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+// Sharing Management Controllers
+
+const markItemAsShareable = async (req, res) => {
+    try {
+        const { itemId } = req.params;
+        const { quantity } = req.body;
+        const { sequelize } = req.app.locals;
+        const { CommonInventory, InventoryHistory, CommonDepts, CommonUsers } = sequelize.models;
+
+        const result = await withTransaction(async (transaction) => {
+            const item = await CommonInventory.findOne({
+                where: {
+                    itemId,
+                    deptId: req.user.deptId,
+                    isSharable: true,
+                    isDeleted: false
+                },
+                include: [{
+                    model: CommonDepts,
+                    as: 'department',
+                    attributes: ['deptName', 'deptCode']
+                }],
+                transaction
+            });
+
+            if (!item) {
+                throw new Error('Item not found or not shareable');
+            }
+
+            if (quantity > item.availableItems) {
+                throw new Error('Cannot share more items than available');
+            }
+
+            const previousValue = item.toJSON();
+            item.availableItems -= quantity;
+            item.sharedItems += quantity;
+            await item.save({ transaction });
+
+            // Record in history
+            await InventoryHistory.create({
+                itemId,
+                action: 'shared',
+                previousValue,
+                newValue: item.toJSON(),
+                performedBy: req.user.uuid
+            }, { transaction });
+
+            return { item };
+        });
+
+        // Notify resource managers in other departments
+        const { CommonDepts } = sequelize.models;
+        const departments = await CommonDepts.findAll({
+            where: {
+                deptId: { [Op.ne]: req.user.deptId },
+                isDeleted: false
+            }
+        });
+
+        // For each department, find resource managers and notify them
+        for (const dept of departments) {
+            try {
+                // Get the dynamic user role model for this department
+                const deptCode = dept.deptCode.toLowerCase();
+                const userRoleTableName = `${dept.deptId}_${deptCode}_user_role`;
+                
+                // Use raw query to check if model exists
+                const [models] = await sequelize.query(
+                    `SHOW TABLES LIKE '${userRoleTableName}'`
+                );
+                
+                if (models.length === 0) {
+                    continue; // Skip if model doesn't exist
+                }
+
+                // Find resource managers using direct query
+                const [resourceManagers] = await sequelize.query(
+                    `SELECT u.* FROM ${userRoleTableName} ur
+                    JOIN common_users u ON ur.userId = u.uuid
+                    WHERE ur.deptId = :deptId AND ur.role = 'ROLE_RESOURCE_MANAGER'
+                    AND u.isDeleted = false`,
+                    {
+                        replacements: { deptId: dept.deptId },
+                        type: sequelize.QueryTypes.SELECT
+                    }
+                );
+                
+                // Send notifications to all resource managers
+                for (const manager of resourceManagers) {
+                    await emailService.sendInventoryShareNotification(
+                        manager,
+                        result.item.itemName,
+                        quantity,
+                        result.item.department.deptName
+                    );
+                }
+            } catch (error) {
+                console.error(`Failed to notify department ${dept.deptCode}:`, error);
+                // Continue with other departments instead of failing the request
+            }
+        }
+
+        res.json({
+            success: true,
+            data: result.item
+        });
+    } catch (error) {
+        console.error('Error marking item as shareable:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+// Request System Controllers
+
+const createResourceRequest = async (req, res) => {
+    try {
+        const { itemId, fromDept, quantity } = req.body;
+        const { sequelize } = req.app.locals;
+        const { CommonInventory, InventoryRequest, InventoryHistory, CommonDepts, CommonUsers } = sequelize.models;
+
+        const result = await withTransaction(async (transaction) => {
+            const item = await CommonInventory.findOne({
+                where: {
+                    itemId,
+                    deptId: fromDept,
+                    isSharable: true,
+                    isDeleted: false
+                },
+                include: [{
+                    model: CommonDepts,
+                    as: 'department',
+                    attributes: ['deptName', 'deptCode']
+                }],
+                transaction
+            });
+
+            if (!item) {
+                throw new Error('Item not found or not shareable');
+            }
+
+            if (quantity > item.sharedItems) {
+                throw new Error('Requested quantity exceeds available shared items');
+            }
+
+            const request = await InventoryRequest.create({
+                itemId,
+                fromDept,
+                forDept: req.user.deptId,
+                quantity,
+                requestStatus: 'pending'
+            }, { transaction });
+
+            // Record in history
+            await InventoryHistory.create({
+                itemId,
+                action: 'requested',
+                newValue: {
+                    ...request.toJSON(),
+                    itemName: item.itemName,
+                    fromDeptName: item.department.deptName
+                },
+                performedBy: req.user.uuid
+            }, { transaction });
+
+            return { request, item };
+        });
+
+        // Notify resource manager of the source department
+        try {
+            const departmentFrom = await CommonDepts.findOne({
+                where: { deptId: fromDept }
+            });
+            
+            if (!departmentFrom) {
+                throw new Error('Source department not found');
+            }
+            
+            // Use raw query for dynamic model access
+            const deptCode = departmentFrom.deptCode.toLowerCase();
+            const userRoleTableName = `${fromDept}_${deptCode}_user_role`;
+            
+            // Check if table exists
+            const [tables] = await sequelize.query(
+                `SHOW TABLES LIKE '${userRoleTableName}'`
+            );
+            
+            if (tables.length > 0) {
+                // Find resource managers
+                const [resourceManagers] = await sequelize.query(
+                    `SELECT u.* FROM ${userRoleTableName} ur
+                    JOIN common_users u ON ur.userId = u.uuid
+                    WHERE ur.deptId = :deptId AND ur.role = 'ROLE_RESOURCE_MANAGER'
+                    AND u.isDeleted = false`,
+                    {
+                        replacements: { deptId: fromDept },
+                        type: sequelize.QueryTypes.SELECT
+                    }
+                );
+                
+                if (resourceManagers.length > 0) {
+                    // Get requesting department name
+                    const requestingDept = await CommonDepts.findOne({
+                        where: { deptId: req.user.deptId }
+                    });
+                    
+                    await emailService.sendInventoryRequestNotification(
+                        resourceManagers[0],
+                        result.item.itemName,
+                        quantity,
+                        'pending',
+                        requestingDept.deptName
+                    );
+                }
+            }
+        } catch (error) {
+            console.error('Failed to notify resource manager:', error);
+            // Continue with the request creation instead of failing
+        }
+
+        res.status(201).json({
+            success: true,
+            data: result.request
+        });
+    } catch (error) {
+        console.error('Error creating resource request:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+const getResourceRequests = async (req, res) => {
+    try {
+        const { sequelize } = req.app.locals;
+        const { InventoryRequest, CommonInventory, CommonDepts } = sequelize.models;
+
+        const requests = await InventoryRequest.findAll({
+            where: {
+                [Op.or]: [
+                    { fromDept: req.user.deptId },
+                    { forDept: req.user.deptId }
+                ],
+                isDeleted: false
+            },
+            include: [
+                {
+                    model: CommonInventory,
+                    attributes: ['itemName', 'itemCategory', 'itemDescription']
+                },
+                {
+                    model: CommonDepts,
+                    as: 'fromDepartment',
+                    attributes: ['deptName', 'deptCode']
+                },
+                {
+                    model: CommonDepts,
+                    as: 'forDepartment',
+                    attributes: ['deptName', 'deptCode']
+                }
+            ],
+            order: [['createdAt', 'DESC']]
+        });
+        res.json({
+            success: true,
+            data: requests
+        });
+    } catch (error) {
+        console.error('Error getting resource requests:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+const updateRequestStatus = async (req, res) => {
+    try {
+        const { requestId } = req.params;
+        const { status } = req.body;
+        const { sequelize } = req.app.locals;
+        const { InventoryRequest, CommonInventory, InventoryHistory, CommonDepts, CommonUsers } = sequelize.models;
+
+        const result = await withTransaction(async (transaction) => {
+            const request = await InventoryRequest.findOne({
+                where: {
+                    requestId,
+                    fromDept: req.user.deptId,
+                    isDeleted: false
+                },
+                include: [
+                    {
+                        model: CommonDepts,
+                        as: 'forDepartment',
+                        attributes: ['deptName', 'deptCode']
+                    }
+                ],
+                transaction
+            });
+
+            if (!request) {
+                throw new Error('Request not found or unauthorized');
+            }
+
+            if (request.requestStatus !== 'pending') {
+                throw new Error('Request has already been processed');
+            }
+
+            const item = await CommonInventory.findOne({
+                where: {
+                    itemId: request.itemId,
+                    deptId: request.fromDept
+                },
+                transaction
+            });
+
+            if (status === 'approved') {
+                if (request.quantity > item.sharedItems) {
+                    throw new Error('Insufficient shared items');
+                }
+
+                item.sharedItems -= request.quantity;
+                await item.save({ transaction });
+
+                // Create inventory entry for requesting department
+                await CommonInventory.create({
+                    deptId: request.forDept,
+                    itemName: item.itemName,
+                    itemCategory: item.itemCategory,
+                    itemDescription: item.itemDescription,
+                    totalItems: request.quantity,
+                    availableItems: request.quantity,
+                    sharedItems: 0,
+                    isSharable: item.isSharable,
+                    isBorrowed: true,
+                    borrowedFromDeptId: request.fromDept,
+                    borrowedQuantity: request.quantity,
+                    lastUpdatedBy: req.user.uuid
+                }, { transaction });
+            }
+
+            request.requestStatus = status;
+            await request.save({ transaction });
+
+            // Record in history
+            await InventoryHistory.create({
+                itemId: request.itemId,
+                action: status === 'approved' ? 'approved' : 'rejected',
+                previousValue: request.toJSON(),
+                newValue: { ...request.toJSON(), requestStatus: status },
+                performedBy: req.user.uuid
+            }, { transaction });
+
+            return { request, item };
+        });
+
+        // Notify resource manager of the requesting department
+        try {
+            const forDept = result.request.forDept;
+            const forDeptInfo = await CommonDepts.findOne({
+                where: { deptId: forDept }
+            });
+            
+            if (!forDeptInfo) {
+                throw new Error('Requesting department not found');
+            }
+            
+            // Use raw query for dynamic model access
+            const deptCode = forDeptInfo.deptCode.toLowerCase();
+            const userRoleTableName = `${forDept}_${deptCode}_user_role`;
+            
+            // Check if table exists
+            const [tables] = await sequelize.query(
+                `SHOW TABLES LIKE '${userRoleTableName}'`
+            );
+            
+            if (tables.length > 0) {
+                // Find resource managers
+                const [resourceManagers] = await sequelize.query(
+                    `SELECT u.* FROM ${userRoleTableName} ur
+                    JOIN common_users u ON ur.userId = u.uuid
+                    WHERE ur.deptId = :deptId AND ur.role = 'ROLE_RESOURCE_MANAGER'
+                    AND u.isDeleted = false`,
+                    {
+                        replacements: { deptId: forDept },
+                        type: sequelize.QueryTypes.SELECT
+                    }
+                );
+                
+                if (resourceManagers.length > 0) {
+                    // Get source department name
+                    const sourceDept = await CommonDepts.findOne({
+                        where: { deptId: result.request.fromDept }
+                    });
+                    
+                    await emailService.sendInventoryRequestNotification(
+                        resourceManagers[0],
+                        result.item.itemName,
+                        result.request.quantity,
+                        status,
+                        sourceDept.deptName
+                    );
+                }
+            }
+        } catch (error) {
+            console.error('Failed to notify resource manager:', error);
+            // Continue with request update instead of failing
+        }
+
+        res.json({
+            success: true,
+            data: result.request
+        });
+    } catch (error) {
+        console.error('Error updating request status:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+// Return/Transfer System Controllers
+
+const returnBorrowedItems = async (req, res) => {
+    try {
+        const { itemId, toDept, quantity } = req.body;
+        const { sequelize } = req.app.locals;
+        const { CommonInventory, InventoryHistory, CommonDepts, CommonUsers } = sequelize.models;
+
+        const result = await withTransaction(async (transaction) => {
+            const item = await CommonInventory.findOne({
+                where: {
+                    itemId,
+                    deptId: req.user.deptId,
+                    isBorrowed: true,
+                    isDeleted: false
+                },
+                include: [{
+                    model: CommonDepts,
+                    as: 'department',
+                    attributes: ['deptName', 'deptCode']
+                }],
+                transaction
+            });
+
+            if (!item) {
+                throw new Error('Item not found or not borrowed');
+            }
+
+            if (item.borrowedFromDeptId !== toDept) {
+                throw new Error('Items can only be returned to the department they were borrowed from');
+            }
+
+            if (quantity > item.availableItems) {
+                throw new Error('Insufficient items to return');
+            }
+
+            if (quantity > item.borrowedQuantity) {
+                throw new Error('Cannot return more items than were borrowed');
+            }
+
+            const previousValue = item.toJSON();
+            item.availableItems -= quantity;
+            item.borrowedQuantity -= quantity;
+            
+            // If all borrowed items are returned, reset borrowed status
+            if (item.borrowedQuantity === 0) {
+                item.isBorrowed = false;
+                item.borrowedFromDeptId = null;
+            }
+            
+            await item.save({ transaction });
+
+            // Update or create inventory in the receiving department
+            const receivingItem = await CommonInventory.findOne({
+                where: {
+                    itemId,
+                    deptId: toDept
+                },
+                include: [{
+                    model: CommonDepts,
+                    as: 'department',
+                    attributes: ['deptName', 'deptCode']
+                }],
+                transaction
+            });
+
+            if (receivingItem) {
+                const receivingPreviousValue = receivingItem.toJSON();
+                receivingItem.availableItems += quantity;
+                receivingItem.sharedItems += quantity; // Add back to shared items
+                await receivingItem.save({ transaction });
+                
+                // Record history for receiving department
+                await InventoryHistory.create({
+                    itemId,
+                    action: 'received_return',
+                    previousValue: receivingPreviousValue,
+                    newValue: receivingItem.toJSON(),
+                    performedBy: req.user.uuid
+                }, { transaction });
+            }
+
+            // Record in history for returning department
+            await InventoryHistory.create({
+                itemId,
+                action: 'returned',
+                previousValue,
+                newValue: item.toJSON(),
+                performedBy: req.user.uuid
+            }, { transaction });
+
+            return { item, receivingItem };
+        });
+
+        // Notify resource manager of the receiving department
+        try {
+            const toDeptInfo = await CommonDepts.findOne({
+                where: { deptId: toDept }
+            });
+            
+            if (!toDeptInfo) {
+                throw new Error('Receiving department not found');
+            }
+            
+            // Use raw query for dynamic model access
+            const deptCode = toDeptInfo.deptCode.toLowerCase();
+            const userRoleTableName = `${toDept}_${deptCode}_user_role`;
+            
+            // Check if table exists
+            const [tables] = await sequelize.query(
+                `SHOW TABLES LIKE '${userRoleTableName}'`
+            );
+            
+            if (tables.length > 0) {
+                // Find resource managers
+                const [resourceManagers] = await sequelize.query(
+                    `SELECT u.* FROM ${userRoleTableName} ur
+                    JOIN common_users u ON ur.userId = u.uuid
+                    WHERE ur.deptId = :deptId AND ur.role = 'ROLE_RESOURCE_MANAGER'
+                    AND u.isDeleted = false`,
+                    {
+                        replacements: { deptId: toDept },
+                        type: sequelize.QueryTypes.SELECT
+                    }
+                );
+                
+                if (resourceManagers.length > 0) {
+                    await emailService.sendInventoryReturnNotification(
+                        resourceManagers[0],
+                        result.item.itemName,
+                        quantity,
+                        result.item.department.deptName
+                    );
+                }
+            }
+        } catch (error) {
+            console.error('Failed to notify resource manager:', error);
+            // Continue with the return process instead of failing
+        }
+
+        res.json({
+            success: true,
+            message: 'Items returned successfully'
+        });
+    } catch (error) {
+        console.error('Error returning borrowed items:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+// Search & Filtering Controller
+
+const searchInventory = async (req, res) => {
+    try {
+        const { query, category, isSharable, isBorrowed } = req.query;
+        const { sequelize } = req.app.locals;
+        const { CommonInventory, CommonDepts } = sequelize.models;
+
+        const where = {
+            deptId: req.user.deptId,
+            isDeleted: false
+        };
+
+        if (query) {
+            where[Op.or] = [
+                { itemName: { [Op.like]: `%${query}%` } },
+                { itemDescription: { [Op.like]: `%${query}%` } }
+            ];
+        }
+
+        if (category) {
+            where.itemCategory = category;
+        }
+
+        if (isSharable !== undefined) {
+            where.isSharable = isSharable === 'true';
+        }
+        
+        if (isBorrowed !== undefined) {
+            where.isBorrowed = isBorrowed === 'true';
+        }
+
+        const items = await CommonInventory.findAll({
+            where,
+            include: [
+                {
+                    model: CommonDepts,
+                    as: 'department',
+                    attributes: ['deptName']
+                },
+                {
+                    model: CommonDepts,
+                    as: 'borrowedFromDepartment',
+                    attributes: ['deptName'],
+                    required: false
+                }
+            ]
+        });
+        res.json({
+            success: true,
+            data: items
+        });
+    } catch (error) {
+        console.error('Error searching inventory:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+// Get Borrowed Items
+const getBorrowedItems = async (req, res) => {
+    try {
+        const { sequelize } = req.app.locals;
+        const { CommonInventory, CommonDepts } = sequelize.models;
+
+        const items = await CommonInventory.findAll({
+            where: {
+                deptId: req.user.deptId,
+                isBorrowed: true,
+                isDeleted: false
+            },
+            include: [{
+                model: CommonDepts,
+                as: 'borrowedFromDepartment',
+                attributes: ['deptName', 'deptCode']
+            }]
+        });
+        res.json({
+            success: true,
+            data: items
+        });
+    } catch (error) {
+        console.error('Error getting borrowed items:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+// Get Items Borrowed By Other Departments
+const getLentItems = async (req, res) => {
+    try {
+        const { sequelize } = req.app.locals;
+        const { CommonInventory, CommonDepts } = sequelize.models;
+
+        const items = await CommonInventory.findAll({
+            where: {
+                borrowedFromDeptId: req.user.deptId,
+                isBorrowed: true,
+                isDeleted: false
+            },
+            include: [{
+                model: CommonDepts,
+                as: 'department',
+                attributes: ['deptName', 'deptCode']
+            }]
+        });
+        res.json({
+            success: true,
+            data: items
+        });
+    } catch (error) {
+        console.error('Error getting lent items:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+};
+
+module.exports = {
+    // Resource Management
+    createResource,
+    listDepartmentResources,
+    getInventoryHistory,
+    getSharableResources,
+
+    // Sharing Management
+    markItemAsShareable,
+
+    // Request System
+    createResourceRequest,
+    getResourceRequests,
+    updateRequestStatus,
+
+    // Return/Transfer System
+    returnBorrowedItems,
+
+    // Search & Filtering
+    searchInventory,
+    
+    // Additional Functionality
+    getBorrowedItems,
+    getLentItems
+};
