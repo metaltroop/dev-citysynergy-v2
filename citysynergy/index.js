@@ -22,7 +22,7 @@ const inventoryRoutes = require('./routes/inventoryRoutes');
 const app = express();
 
 // Middleware
-const allowedOrigins = ['http://localhost:5173', 'https://hoppscotch.io/'];
+const allowedOrigins = ['http://localhost:5173', 'https://hoppscotch.io/','http://localhost:3000'];
 
 
 const corsOptions = {

@@ -1,6 +1,6 @@
 // User controller
 
-const { withTransaction } = require('../utils/invtransactionManager');
+const { withTransaction } = require('../utils/transactionManager');
 const emailService = require('../services/emailService');
 const bcrypt = require('bcrypt');
 const { generateCustomId, generateTempPassword, getDepartmentModels } = require('../utils/helpers');
