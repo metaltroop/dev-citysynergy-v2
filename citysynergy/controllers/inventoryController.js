@@ -1,5 +1,5 @@
 const { Op } = require('sequelize');
-const { withTransaction } = require('../utils/transactionManager');
+const { withTransaction } = require('../utils/invtransactionManager');
 const emailService = require('../services/emailService');
 
 // Resource Management Controllers
@@ -90,15 +90,34 @@ const listDepartmentResources = async (req, res) => {
 
 const getInventoryHistory = async (req, res) => {
     try {
+        const { startDate, endDate } = req.query;
         const { sequelize } = req.app.locals;
         const { InventoryHistory, CommonUsers } = sequelize.models;
 
+        // Build the where clause
+        const whereClause = {
+            itemId: {
+                [Op.in]: sequelize.literal(`(SELECT itemId FROM common_inventory WHERE deptId = '${req.user.deptId}')`)
+            }
+        };
+
+        // Add date range filter if provided
+        if (startDate && endDate) {
+            whereClause.createdAt = {
+                [Op.between]: [new Date(startDate), new Date(endDate)]
+            };
+        } else if (startDate) {
+            whereClause.createdAt = {
+                [Op.gte]: new Date(startDate)
+            };
+        } else if (endDate) {
+            whereClause.createdAt = {
+                [Op.lte]: new Date(endDate)
+            };
+        }
+
         const history = await InventoryHistory.findAll({
-            where: {
-                itemId: {
-                    [Op.in]: sequelize.literal(`(SELECT itemId FROM common_inventory WHERE deptId = '${req.user.deptId}')`)
-                }
-            },
+            where: whereClause,
             include: [{
                 model: CommonUsers,
                 as: 'performer',
@@ -106,6 +125,7 @@ const getInventoryHistory = async (req, res) => {
             }],
             order: [['createdAt', 'DESC']]
         });
+        
         res.json({
             success: true,
             data: history

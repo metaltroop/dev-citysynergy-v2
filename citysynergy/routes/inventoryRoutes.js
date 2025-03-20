@@ -9,7 +9,15 @@ router.use(authMiddleware);
 // Resource Management Routes
 router.post("/", inventoryController.createResource);
 router.get("/", inventoryController.listDepartmentResources);
+
+/**
+ * @route GET /api/inventory/history
+ * @description Get inventory history with optional date range filtering
+ * @query startDate - Optional start date (YYYY-MM-DD)
+ * @query endDate - Optional end date (YYYY-MM-DD)
+ */
 router.get("/history", inventoryController.getInventoryHistory);
+
 router.get("/sharing", inventoryController.getSharableResources);
 
 // Sharing Management Routes

@@ -1,7 +1,6 @@
 const { Op } = require('sequelize');
 
-const withTransaction = async (callback) => {
-    const { sequelize } = global.app.locals;
+const withTransaction = async (callback, sequelize) => {
     const transaction = await sequelize.transaction();
     
     try {
@@ -15,9 +14,9 @@ const withTransaction = async (callback) => {
 };
 
 // Add specific transaction handlers for common operations
-const withOTPTransaction = async (email, otp, newPassword, callback) => {
+const withOTPTransaction = async (email, otp, newPassword, callback, sequelize) => {
     return withTransaction(async (transaction) => {
-        const { CommonUsers, OTP } = global.app.locals.sequelize.models;
+        const { CommonUsers, OTP } = sequelize.models;
         
         // Verify OTP
         const validOtp = await OTP.findOne({
@@ -44,7 +43,7 @@ const withOTPTransaction = async (email, otp, newPassword, callback) => {
         await validOtp.update({ isUsed: true }, { transaction });
 
         return result;
-    });
+    }, sequelize);
 };
 
 module.exports = {
