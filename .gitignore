@@ -1,3 +1,13 @@
 citysynergy/node_modules
 citysynergy/.env
-citysynergy/scripts/addHierarchyToDeptRoles.js
+citysynergy/scripts
+citysynergy/docs
+citysynergy/addborrowingfields.js
+citysynergy/checkinventorytable.js
+citysynergy/comprtesting.mjs
+citysynergy/crossDeptTesting.mjs
+citysynergy/testAPI.mjs
+citysynergy/testAPI.js
+citysynergy/inventoryTestSummary.md
+
+
