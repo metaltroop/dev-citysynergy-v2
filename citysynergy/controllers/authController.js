@@ -209,12 +209,13 @@ const login = async (req, res) => {
         // **Update Last Login**
         await user.update({ lastLogin: new Date(), isFirstLogin: false });
 
-        // **Set Refresh Token in HTTP-Only Cookie**
+        // **Set Refresh Token in HTTP-Only Cookie with Enhanced Security**
         res.cookie('refreshToken', tokens.refreshToken, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'strict',
-            maxAge: 7 * 24 * 60 * 60 * 1000
+            httpOnly: true,   // Prevents client-side JavaScript access
+            secure: process.env.NODE_ENV === 'production',  // Secure in production
+            sameSite: 'Strict',  // Protect against CSRF attacks
+            path: '/api/auth/',  // Restrict to auth routes
+            maxAge: 7 * 24 * 60 * 60 * 1000  // 7 days expiration
         });
 
         // **Helper Function to Check Permissions**
@@ -277,7 +278,8 @@ const hasPermission = (roles, featureName, action) => {
 
 const refreshToken = async (req, res) => {
     try {
-        const { refreshToken } = req.body;
+        // Read refresh token from cookies instead of req.body
+        const refreshToken = req.cookies?.refreshToken;
         if (!refreshToken) {
             return res.status(400).json({
                 success: false,
@@ -305,8 +307,6 @@ const refreshToken = async (req, res) => {
         // Generate new tokens
         const tokens = generateTokens(user);
 
-        // No logging for GET operation
-
         res.status(200).json({
             success: true,
             data: { tokens }
@@ -319,6 +319,7 @@ const refreshToken = async (req, res) => {
         });
     }
 };
+
 
 const changePassword = async (req, res) => {
     try {

@@ -23,6 +23,7 @@ console.log('Cloudinary Configuration:', {
  * Upload an image to Cloudinary
  * @param {Buffer} buffer - Image buffer
  * @param {string} userId - User ID for folder organization
+ * @param {string} raisedByEmailID - Email ID for folder organization
  * @returns {Promise<Object>} - Cloudinary upload result
  */
 const uploadImage = async (buffer, userId) => {
@@ -55,6 +56,48 @@ const uploadImage = async (buffer, userId) => {
     }
 };
 
+const uploadImage1 = async (buffer, raisedByEmailID) => {
+    if (!Buffer.isBuffer(buffer)) {
+      throw new Error("Invalid buffer data. Expected a Buffer object.");
+    }
+  
+    return new Promise((resolve, reject) => {
+      try {
+        // Create a readable stream from the buffer
+        const stream = Readable.from(buffer);
+  
+        // Set folder path dynamically
+        const folderPath = `citysynergy/Issue_images/${raisedByEmailID}`;
+  
+        // Create a Cloudinary upload stream
+        const uploadStream = cloudinary.uploader.upload_stream(
+          {
+            folder: folderPath,
+            resource_type: "image",
+            transformation: [
+                { width: 250, height: 250, crop: "fill", gravity: "face" },
+                ],
+            
+          },
+          (error, result) => {
+            if (error) {
+              console.error("Cloudinary Upload Error:", error);
+              return reject(error);
+            }
+            resolve(result);
+          }
+        );
+  
+        // Pipe the buffer to the upload stream
+        stream.pipe(uploadStream);
+      } catch (error) {
+        console.error("Unexpected Error in uploadImage1:", error);
+        reject(error);
+      }
+    });
+  };
+  
+
 /**
  * Delete an image from Cloudinary
  * @param {string} publicId - Cloudinary public ID
@@ -69,7 +112,10 @@ const deleteImage = async (publicId) => {
     }
 };
 
+
+
 module.exports = {
     uploadImage,
-    deleteImage
+    deleteImage,
+    uploadImage1
 }; 

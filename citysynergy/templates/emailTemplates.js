@@ -295,6 +295,30 @@ const getInventoryReturnNotificationContent = (itemName, quantity, departmentNam
         <p>&copy; ${new Date().getFullYear()} City Synergy</p>
     </div>`;
 
+    const getIssueRaisedContent = (issueDetails) => `
+<div class="header">
+    <h2>Issue Raised Successfully</h2>
+</div>
+<div class="content">
+    <p>Hello ${issueDetails.raisedByName},</p>
+    <p>Your issue has been successfully raised in the system.</p>
+    <p><strong>Issue Details:</strong></p>
+    <ul>
+        <li><strong>Issue ID:</strong> ${issueDetails.IssueId}</li>
+        <li><strong>Category:</strong> ${issueDetails.IssueCategory}</li>
+        <li><strong>Name:</strong> ${issueDetails.IssueName}</li>
+        <li><strong>Description:</strong> ${issueDetails.IssueDescription || 'N/A'}</li>
+        <li><strong>Related Department:</strong> ${issueDetails.Related || 'N/A'}</li>
+        <li><strong>Locality:</strong> ${issueDetails.locality}</li>
+        <li><strong>Pincode:</strong> ${issueDetails.pincode}</li>
+        <li><strong>Status:</strong> Raised ✅</li>
+    </ul>
+    <p>Thank you for raising this issue. Our team will review it shortly.</p>
+</div>
+<div class="footer">
+    <p>&copy; ${new Date().getFullYear()} City Synergy</p>
+</div>`;
+
 module.exports = {
     getBaseTemplate,
     getWelcomeDevUserContent,
@@ -309,5 +333,6 @@ module.exports = {
     getRoleChangedEmailContent,
     getInventoryRequestNotificationContent,
     getInventoryShareNotificationContent,
-    getInventoryReturnNotificationContent
+    getInventoryReturnNotificationContent,
+    getIssueRaisedContent
 };

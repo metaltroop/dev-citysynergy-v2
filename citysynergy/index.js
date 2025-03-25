@@ -7,6 +7,7 @@ const swaggerUi = require('swagger-ui-express');
 const specs = require('./config/swagger');
 const { initializeDatabase } = require('./config/database');
 const { initializeDevTables } = require('./utils/devInitializer');
+const cookieParser = require('cookie-parser');
 
 // Import routes
 const authRoutes = require('./routes/authRoutes');
@@ -18,6 +19,7 @@ const roleRoutes = require('./routes/roleRoutes');
 const featureRoutes = require('./routes/featureRoutes');
 const activityRoutes = require('./routes/activityRoutes');
 const inventoryRoutes = require('./routes/inventoryRoutes');
+const issueRoutes = require('./routes/IssueRoutes');
 
 const app = express();
 
@@ -62,6 +64,7 @@ app.use((err, req, res, next) => {
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser()); // Enable cookie parsing
 
 // Swagger documentation route
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
@@ -76,6 +79,7 @@ app.use('/api/roles', roleRoutes);
 app.use('/api/features', featureRoutes);
 app.use('/api/activity', activityRoutes);
 app.use('/api/inventory', inventoryRoutes);
+app.use('/api/issues', issueRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

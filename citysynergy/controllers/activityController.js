@@ -98,8 +98,19 @@ const getDevDashboard = async (req, res) => {
     try {
         const { limit = 10, days = 30 } = req.query;
         const { sequelize } = req.app.locals;
-        const { CommonUsers, CommonDepts, Clash } = sequelize.models;
         
+        // Verify models exist
+        if (!sequelize || !sequelize.models) {
+            throw new Error('Database connection not initialized');
+        }
+        
+        const { CommonUsers, CommonDepts } = sequelize.models;
+        
+        // Verify required models exist
+        if (!CommonUsers || !CommonDepts) {
+            throw new Error('Required models not found');
+        }
+
         // Run all queries in parallel for better performance
         const [recentActivities, systemActivity, stats] = await Promise.all([
             // Get recent activities
@@ -110,30 +121,33 @@ const getDevDashboard = async (req, res) => {
             
             // Get dashboard stats
             (async () => {
-                // Get total users count
-                const userCount = await CommonUsers.count({
-                    where: { isDeleted: false }
-                });
-                
-                // Get departments count
-                const deptCount = await CommonDepts.count({
-                    where: { isDeleted: false }
-                });
-                
-                // Get active clashes
-                const clashCount = await Clash.count({
-                    where: { isResolved: false }
-                });
-                
-                // Calculate system health (this is a placeholder - implement your own logic)
-                const systemHealth = 95.4; // Example value
-                
-                return {
-                    userCount,
-                    deptCount,
-                    clashCount,
-                    systemHealth
-                };
+                try {
+                    // Get counts with error handling
+                    const [userCount, deptCount, clashCount] = await Promise.all([
+                        CommonUsers.count({ where: { isDeleted: false } }).catch(() => 0),
+                        CommonDepts.count({ where: { isDeleted: false } }).catch(() => 0),
+                       
+                    ]);
+
+                    // Calculate system health (this is a placeholder - implement your own logic)
+                    const systemHealth = 95.4;
+
+                    return {
+                        userCount,
+                        deptCount,
+                        
+                        systemHealth
+                    };
+                } catch (error) {
+                    console.error('Error getting stats:', error);
+                    return {
+                        userCount: 0,
+                        deptCount: 0,
+                        
+                        systemHealth: 0,
+                        error: 'Error fetching statistics'
+                    };
+                }
             })()
         ]);
         
@@ -150,8 +164,8 @@ const getDevDashboard = async (req, res) => {
         console.error('Error fetching dashboard data:', error);
         res.status(500).json({
             success: false,
-            message: 'Error fetching dashboard data',
-            error: error.message
+            message: error.message || 'Error fetching dashboard data',
+            error: error.toString()
         });
     }
 };
@@ -161,4 +175,4 @@ module.exports = {
     getSystemActivity,
     getDashboardStats,
     getDevDashboard
-}; 
+};

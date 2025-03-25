@@ -6,15 +6,7 @@ const mysql = require('mysql2/promise');
 const path = require('path');
 const { initializeDevTables } = require('../utils/devInitializer');
 
-// Import all models
-const CommonUsers = require('../models/common_users');
-const CommonDepts = require('../models/common_dept');
-const DevRoles = require('../models/dev_roles');
-const DevFeatures = require('../models/dev_features');
-const DevUserRole = require('../models/dev_user_role');
-const DevRoleFeature = require('../models/dev_roleFeature');
-const ActivityLog = require('../models/activity_log');
-const UserImage = require('../models/user_images');
+
 
 const initializeDatabase = async () => {
     try {
@@ -73,14 +65,18 @@ const initializeDatabase = async () => {
         sequelize.models.DevRoleFeature = require('../models/dev_roleFeature')(sequelize);
         sequelize.models.DevUserRole = require('../models/dev_user_role')(sequelize);
         sequelize.models.OTP = require('../models/otp')(sequelize);
-        sequelize.models.Tender = require('../models/tenders')(sequelize);
-        sequelize.models.Clash = require('../models/clashes')(sequelize);
-        sequelize.models.CommonIssues = require('../models/common_issues')(sequelize);
         sequelize.models.CommonInventory = require('../models/common_inventory')(sequelize);
         sequelize.models.InventoryRequest = require('../models/inventory_request')(sequelize);
         sequelize.models.InventoryHistory = require('../models/inventory_history')(sequelize);
         sequelize.models.ActivityLog = require('../models/activity_log')(sequelize);
         sequelize.models.UserImage = require('../models/user_images')(sequelize);
+        sequelize.models.CommonIssuees = require('../models/issues')(sequelize);
+        sequelize.models.Pincode = require('../models/Pincode')(sequelize);
+        sequelize.models.City = require('../models/common_cities')(sequelize);
+        sequelize.models.Zones = require('../models/Zones')(sequelize);
+        sequelize.models.Locality = require('../models/Locality')(sequelize);
+        sequelize.models.LocalArea = require('../models/LocalArea')(sequelize);
+        
         
         console.log('✓ All models registered successfully');
 
@@ -94,9 +90,12 @@ const initializeDatabase = async () => {
             DevRoleFeature, 
             DevUserRole,
             OTP,
-            Tender,
-            Clash,
-            CommonIssues,
+            Pincode,
+            City,
+            Zones,
+            Locality,
+            LocalArea,
+            CommonIssuees,
             CommonInventory,
             InventoryRequest,
             InventoryHistory,
@@ -142,28 +141,10 @@ const initializeDatabase = async () => {
             sourceKey: 'deptId'
         });
 
-        
         CommonDepts.belongsTo(CommonUsers, {
              foreignKey: 'deptHead',
              as: 'DeptHead'
             });
-
-        // Tender associations
-        Tender.belongsTo(CommonDepts, {
-            foreignKey: 'deptId',
-            targetKey: 'deptId'
-        });
-
-        // Clash associations
-        Clash.belongsTo(CommonDepts, {
-            foreignKey: 'deptId',
-            targetKey: 'deptId'
-        });
-
-        CommonIssues.belongsTo(CommonDepts, {
-            foreignKey: 'deptId',
-            targetKey: 'deptId'
-        });
 
         CommonInventory.belongsTo(CommonDepts, {
             foreignKey: 'deptId',
@@ -304,14 +285,17 @@ const initializeDatabase = async () => {
             DevRoleFeature.sync().then(() => console.log('✓ DevRoleFeature table synchronized')),
             DevUserRole.sync().then(() => console.log('✓ DevUserRole table synchronized')),
             OTP.sync().then(() => console.log('✓ OTP table synchronized')),
-            Tender.sync().then(() => console.log('✓ Tender table synchronized')),
-            Clash.sync().then(() => console.log('✓ Clash table synchronized')),
-            CommonIssues.sync().then(() => console.log('✓ CommonIssues table synchronized')),
             CommonInventory.sync().then(() => console.log('✓ CommonInventory table synchronized')),
             InventoryRequest.sync().then(() => console.log('✓ InventoryRequest table synchronized')),
             InventoryHistory.sync().then(() => console.log('✓ InventoryHistory table synchronized')),
             ActivityLog.sync().then(() => console.log('✓ ActivityLog table synchronized')),
-            UserImage.sync().then(() => console.log('✓ UserImage table synchronized'))
+            UserImage.sync().then(() => console.log('✓ UserImage table synchronized')),
+            CommonIssuees.sync().then(() => console.log('✓ CommonIssuees table synchronized')),
+            Pincode.sync().then(() => console.log('✓ Pincode table synchronized')),
+            City.sync().then(() => console.log('✓ City table synchronized')),
+            Zones.sync().then(() => console.log('✓ Zones table synchronized')),
+            Locality.sync().then(() => console.log('✓ Locality table synchronized')),
+            LocalArea.sync().then(() => console.log('✓ LocalArea table synchronized'))
         ]);
 
         console.log('✓ All models synchronized successfully\n'); 

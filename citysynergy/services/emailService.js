@@ -14,7 +14,8 @@ const {
     getRoleChangedEmailContent,
     getInventoryRequestNotificationContent,
     getInventoryShareNotificationContent,
-    getInventoryReturnNotificationContent
+    getInventoryReturnNotificationContent,
+    getIssueRaisedContent
 } = require('../templates/emailTemplates');
 
 class EmailService {
@@ -167,6 +168,12 @@ class EmailService {
         const subject = 'Inventory Return Notification - City Synergy';
         const content = getInventoryReturnNotificationContent(itemName, quantity, departmentName);
         return this.sendEmail(user.email, subject, content);
+    }
+
+    async sendIssueRaisedNotification(issueDetails) {
+        const subject = 'Issue Raised Notification - City Synergy';
+        const content = getIssueRaisedContent(issueDetails); // ✅ Correct function call
+        return this.sendEmail(issueDetails.raisedByEmailID, subject, content); // ✅ Correct 
     }
 }
 
