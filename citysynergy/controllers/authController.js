@@ -518,29 +518,39 @@ const resetPassword = async (req, res) => {
 // Add logout function
 const logout = async (req, res) => {
     try {
-        const { sequelize } = req.app.locals;
-        
-        // Log logout
-        await activityLogService.createActivityLog(sequelize, {
-            activityType: 'LOGOUT',
-            description: `User logged out`,
-            userId: req.user.uuid,
-            ipAddress: req.ip
-        });
-        
-        res.status(200).json({
-            success: true,
-            message: 'Logged out successfully'
-        });
+      const { sequelize } = req.app.locals;
+  
+      // Optionally log logout activity
+      await activityLogService.createActivityLog(sequelize, {
+        activityType: "LOGOUT",
+        description: "User logged out",
+        userId: req.user.uuid,
+        ipAddress: req.ip,
+      });
+  
+        // Clear refresh token cookie
+      res.clearCookie("refreshToken", {
+        httpOnly: true,
+        secure: true,
+        sameSite: "strict",
+        path: '/api/auth/'
+       
+      });
+  
+      return res.status(200).json({
+        success: true,
+        message: "Logged out successfully",
+      });
     } catch (error) {
-        console.error('Logout error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Error during logout',
-            error: error.message
-        });
+      console.error("Logout error:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Error during logout",
+        error: error.message,
+      });
     }
-};
+  };
+  
 
 module.exports = {
     login,

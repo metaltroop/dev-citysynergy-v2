@@ -24,7 +24,7 @@ const issueRoutes = require('./routes/IssueRoutes');
 const app = express();
 
 // Middleware
-const allowedOrigins = ['http://localhost:5173', 'https://hoppscotch.io/','http://localhost:3000'];
+const allowedOrigins = ['http://localhost:5173', 'https://hoppscotch.io/','http://localhost:3000','http://127.0.0.1:5500'];
 
 
 const corsOptions = {
