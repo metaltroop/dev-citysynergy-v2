@@ -70,7 +70,7 @@ const initializeDatabase = async () => {
         sequelize.models.InventoryHistory = require('../models/inventory_history')(sequelize);
         sequelize.models.ActivityLog = require('../models/activity_log')(sequelize);
         sequelize.models.UserImage = require('../models/user_images')(sequelize);
-        sequelize.models.CommonIssuees = require('../models/issues')(sequelize);
+        sequelize.models.CommonIssuees = require('../models/Issues')(sequelize);
         sequelize.models.Pincode = require('../models/Pincode')(sequelize);
         sequelize.models.City = require('../models/common_cities')(sequelize);
         sequelize.models.Zones = require('../models/Zones')(sequelize);
