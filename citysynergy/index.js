@@ -36,7 +36,7 @@ const server = http.createServer(app); // Then create server
 // const updatedSocketRoutes = require('./routes/updatedSocketRoutes');
 
 // Middleware
-const allowedOrigins = ['http://localhost:5173', 'https://hoppscotch.io/','http://localhost:3000','http://127.0.0.1:5500','https://synergy.metaltroop.fun/'];
+const allowedOrigins = ['http://localhost:5173', 'https://hoppscotch.io/','http://localhost:3000','http://127.0.0.1:5500','https://synergy.metaltroop.fun'];
 
 
 const corsOptions = {
