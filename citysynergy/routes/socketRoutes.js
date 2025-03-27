@@ -8,6 +8,7 @@ const socketRoutes = (server, sequelize) => {
         "http://127.0.0.1:5500",
         "http://localhost:5500",
         "http://localhost:5173",
+        "https://synergy.metaltroop.fun",
       ],
       methods: ["GET", "POST"],
       credentials: true,
