@@ -1,17 +1,11 @@
 const { uploadImage1 } = require("../services/cloudinaryService");
-const multer = require("multer");
 const { withTransaction } = require('../utils/transactionManager');
 
-// ✅ Configure Multer for Memory Storage (Buffer)
-const storage = multer.memoryStorage();
-const upload = multer({ storage });
 
-const { Op, INTEGER } = require("sequelize");
-const CommonIssuees = require("../models/issues"); // Initialize model
+const { Op } = require("sequelize");
 
 const emailService = require("../services/emailService");
 const validateEmail = require("../utils/smtpValidator");
-const nodemailer = require("nodemailer");
 
 // ✅ Function to Find Related Issues
 const findRelatedIssue = async (sequelize, newIssueData) => {
