@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Issues Management</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .popup {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+        .popup-content {
+            position: relative;
+            background-color: white;
+            margin: 5% auto;
+            padding: 20px;
+            width: 70%;
+            border-radius: 8px;
+        }
+        .close-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            cursor: pointer;
+        }
+        .dropdown-menu {
+            min-width: 200px;
+        }
+        .status-options {
+            display: none;
+            background: white;
+            border: 1px solid #ccc;
+            padding: 10px;
+            position: absolute;
+            z-index: 1000;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <h2>Issues Management</h2>
+        <table class="table table-striped" id="issuesTable">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Email ID</th>
+                    <th>Name</th>
+                    <th>Category</th>
+                    <th>Issue ID</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="issuesTableBody"></tbody>
+        </table>
+    </div>
+
+    <!-- Popup Modal for More Info -->
+    <div id="issuePopup" class="popup">
+        <div class="popup-content">
+            <span class="close-btn">&times;</span>
+            <h3>Issue Details</h3>
+            <div id="issueDetails"></div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let issuesData = [];
+
+        // Fetch issues from API
+        async function fetchIssues() {
+            try {
+                const token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1dWlkIjoiVVNSMDAyIiwidHlwZSI6ImRlcHQiLCJkZXB0SWQiOiJERVBUMDAxIiwiaWF0IjoxNzQyODExMDMxLCJleHAiOjE3NDI4OTc0MzF9.TwvElQsNc5TFqBA36zo3M7t6a4B54hrKyy-ElC_TeUU"; // Replace with actual token
+                const response = await fetch('http://localhost:3000/api/issue/get-Issues', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const data = await response.json();
+                issuesData = data.issues;
+                renderIssuesTable();
+            } catch (error) {
+                console.error('Error fetching issues:', error);
+            }
+        }
+
+        // Render issues table
+        function renderIssuesTable() {
+            const tableBody = document.getElementById('issuesTableBody');
+            tableBody.innerHTML = '';
+
+            issuesData.forEach((issue, index) => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${index + 1}</td>
+                    <td>${issue.raisedByEmailID}</td>
+                    <td>${issue.raisedByName}</td>
+                    <td>${issue.IssueCategory}</td>
+                    <td>${issue.IssueId}</td>
+                    <td>
+                        <div class="dropdown">
+                            <button class="btn btn-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                                Actions
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" href="#" onclick="showStatusOptions(event, '${issue.IssueId}')">Update Status</a></li>
+                                <li><a class="dropdown-item" href="#" onclick="showMoreInfo('${issue.IssueId}')">More Info</a></li>
+                            </ul>
+                        </div>
+                        <div class="status-options" id="statusOptions-${issue.IssueId}">
+                            <form id="statusForm-${issue.IssueId}">
+                                ${renderStatusOptions(issue.issueStatus)}
+                                <button class="btn btn-primary btn-sm mt-2" type="button" onclick="applyStatusUpdate('${issue.IssueId}')">Apply</button>
+                            </form>
+                        </div>
+                    </td>
+                `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        // Show status update options
+        function showStatusOptions(event, issueId) {
+            event.preventDefault();
+            document.querySelectorAll('.status-options').forEach(el => el.style.display = 'none');
+            document.getElementById(`statusOptions-${issueId}`).style.display = 'block';
+        }
+
+        // Render status radio buttons (only show false statuses)
+        function renderStatusOptions(status) {
+            return Object.entries(status)
+                .filter(([key, value]) => value === false)
+                .map(([key]) => `
+                    <div class="form-check">
+                        <input class="form-check-input" type="radio" name="status" value="${key}" id="status-${key}">
+                        <label class="form-check-label" for="status-${key}">${key}</label>
+                    </div>
+                `)
+                .join('');
+        }
+
+        // Apply status update
+        async function applyStatusUpdate(issueId) {
+            const selectedStatus = document.querySelector(`#statusForm-${issueId} input[name="status"]:checked`);
+            if (!selectedStatus) return alert('Please select a status to update.');
+
+            try {
+                const response = await fetch(`http://localhost:3000/api/issue/update-status/${issueId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer YOUR_JWT_TOKEN_HERE'
+                    },
+                    body: JSON.stringify({ status: { [selectedStatus.value]: true } })
+                });
+
+                const result = await response.json();
+                alert(result.message);
+                fetchIssues(); // Refresh data
+            } catch (error) {
+                console.error('Error updating status:', error);
+            }
+        }
+
+        // Show more info popup
+        function showMoreInfo(issueId) {
+            const issue = issuesData.find(i => i.IssueId === issueId);
+            const popup = document.getElementById('issuePopup');
+            const detailsDiv = document.getElementById('issueDetails');
+
+            // Only show statuses that are `true`
+            const statusList = Object.entries(issue.issueStatus)
+                .filter(([key, value]) => value === true)
+                .map(([key]) => `<li>${key}</li>`)
+                .join('');
+
+            detailsDiv.innerHTML = `
+                <div class="row">
+                    <div class="col-md-6">
+                        <p><strong>Email:</strong> ${issue.raisedByEmailID}</p>
+                        <p><strong>Name:</strong> ${issue.raisedByName}</p>
+                        <p><strong>Category:</strong> ${issue.IssueCategory}</p>
+                        <p><strong>Issue ID:</strong> ${issue.IssueId}</p>
+                        <p><strong>Description:</strong> ${issue.IssueDescription}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <p><strong>Address:</strong> ${issue.address}</p>
+                        <p><strong>Pincode:</strong> ${issue.pincode}</p>
+                        <p><strong>Locality:</strong> ${issue.locality}</p>
+                        <p><strong>Status:</strong></p>
+                        <ul>${statusList}</ul>
+                        ${issue.image ? `<img src="${issue.image}" class="img-fluid" alt="Issue Image">` : ''}
+                    </div>
+                </div>
+            `;
+
+            popup.style.display = 'block';
+        }
+
+        document.querySelector('.close-btn').addEventListener('click', () => {
+            document.getElementById('issuePopup').style.display = 'none';
+        });
+
+        document.addEventListener('DOMContentLoaded', fetchIssues);
+    </script>
+</body>
+</html>

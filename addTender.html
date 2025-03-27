@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Tender</title>
+    <style>
+        * {
+            font-family: Arial, sans-serif;
+            box-sizing: border-box;
+        }
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f4f4f4;
+        }
+        .container {
+            display: flex;
+            width: 80%;
+            background: white;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        .form-container, .result-container {
+            padding: 20px;
+        }
+        .form-container {
+            width: 50%;
+            background: #f9f9f9;
+            border-right: 2px solid #ddd;
+        }
+        .result-container {
+            width: 50%;
+            background: white;
+        }
+        h2 {
+            text-align: center;
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            margin-top: 5px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .dropdown-suggestions {
+            position: absolute;
+            background: white;
+            border: 1px solid #ddd;
+            max-height: 150px;
+            overflow-y: auto;
+            width: calc(100% - 16px);
+            display: none;
+            z-index: 1000;
+        }
+        .dropdown-suggestions div {
+            padding: 8px;
+            cursor: pointer;
+        }
+        .dropdown-suggestions div:hover {
+            background: #ddd;
+        }
+        button {
+            width: 100%;
+            padding: 10px;
+            margin-top: 15px;
+            border: none;
+            background: #28a745;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        button:hover {
+            background: #218838;
+        }
+        .result-container {
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- Form Section -->
+    <div class="form-container">
+        <h2>Add Tender</h2>
+        <form id="tenderForm">
+            <label>Tender by Department:</label>
+            <input type="text" id="Tender_by_Department" required>
+
+            <label>Tender Classification:</label>
+            <input type="text" id="Tender_by_Classification" required>
+
+            <label>Sanction Date:</label>
+            <input type="date" id="Sanction_Date" required>
+
+            <label>Start Date:</label>
+            <input type="date" id="Start_Date" required>
+
+            <label>Completion Date:</label>
+            <input type="date" id="Completion_Date" required>
+
+            <label>Sanction Amount:</label>
+            <input type="number" id="Sanction_Amount" required>
+
+            <label>Complete/Pending:</label>
+            <select id="Complete_Pending">
+                <option value="Complete">Complete</option>
+                <option value="Pending">Pending</option>
+            </select>
+
+            <label>City:</label>
+            <input type="text" id="City" onkeyup="fetchSuggestions('city', this.value)">
+            <div class="dropdown-suggestions" id="suggestions-city"></div>
+
+            <label>Zones:</label>
+            <input type="text" id="Zones" onkeyup="fetchSuggestions('zone', this.value)">
+            <div class="dropdown-suggestions" id="suggestions-zone"></div>
+
+            <label>Local Area:</label>
+            <input type="text" id="Local_Area" onkeyup="fetchSuggestions('local-area', this.value)">
+            <div class="dropdown-suggestions" id="suggestions-local-area"></div>
+
+            <label>Locality:</label>
+            <input type="text" id="Locality" onkeyup="fetchSuggestions('locality', this.value)">
+            <div class="dropdown-suggestions" id="suggestions-locality"></div>
+
+            <label>Pincode:</label>
+            <input type="text" id="Pincode" onkeyup="fetchSuggestions('pincode', this.value)">
+            <div class="dropdown-suggestions" id="suggestions-pincode"></div>
+
+            <button type="submit">Add Tender</button>
+        </form>
+    </div>
+
+    <!-- Results Section -->
+    <div class="result-container">
+        <h2>Results</h2>
+        <pre id="resultOutput"></pre>
+    </div>
+</div>
+
+<script>
+async function fetchSuggestions(type, value) {
+    if (value.length < 2) return;
+    
+    const endpointMap = {
+        'city': 'http://localhost:3000/api/location/search-city?city=',
+        'zone': 'http://localhost:3000/api/location/search-zone?zone=',
+        'local-area': 'http://localhost:3000/api/location/search-local-area?localArea=',
+        'locality': 'http://localhost:3000/api/location/search-locality?locality=',
+        'pincode': 'http://localhost:3000/api/location/search-pincode?pincode='
+    };
+
+    // Correct field ID mapping
+    const fieldIdMap = {
+        'city': 'City',
+        'zone': 'Zones',
+        'local-area': 'Local_Area',
+        'locality': 'Locality',
+        'pincode': 'Pincode'
+    };
+
+    const url = endpointMap[type] + encodeURIComponent(value);
+    const dropdown = document.getElementById(`suggestions-${type}`);
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('Server error');
+
+        const data = await response.json();
+        dropdown.innerHTML = '';
+        dropdown.style.display = data.length ? 'block' : 'none';
+
+        data.forEach(item => {
+            const div = document.createElement('div');
+            div.textContent = item.name || item.locality || item.pincode;
+
+            div.onclick = function () {
+                let inputField = document.getElementById(fieldIdMap[type]);
+                if (inputField) {
+                    inputField.value = div.textContent;
+                    dropdown.style.display = 'none';
+                } else {
+                    console.error(`❌ Input field with ID "${fieldIdMap[type]}" not found.`);
+                }
+            };
+            dropdown.appendChild(div);
+        });
+    } catch (error) {
+        console.error(`Error fetching ${type} suggestions:`, error);
+    }
+}
+
+    document.getElementById('tenderForm').addEventListener('submit', async function(event) {
+        event.preventDefault();
+        
+        const tenderData = {
+            Tender_by_Department: document.getElementById('Tender_by_Department').value,
+            Tender_by_Classification: document.getElementById('Tender_by_Classification').value,
+            Sanction_Date: document.getElementById('Sanction_Date').value,
+            Start_Date: document.getElementById('Start_Date').value,
+            Completion_Date: document.getElementById('Completion_Date').value,
+            Sanction_Amount: document.getElementById('Sanction_Amount').value,
+            Complete_Pending: document.getElementById('Complete_Pending').value,
+            City: document.getElementById('City').value,
+            Zones: document.getElementById('Zones').value,
+            Local_Area: document.getElementById('Local_Area').value,
+            Locality: document.getElementById('Locality').value,
+            Pincode: document.getElementById('Pincode').value
+        };
+
+        try {
+            const response = await fetch('http://localhost:3000/api/tender/addtendermain', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(tenderData)
+            });
+            const result = await response.json();
+            document.getElementById('resultOutput').textContent = JSON.stringify(result, null, 2);
+        } catch (error) {
+            console.error("Error adding tender:", error);
+        }
+    });
+</script>
+
+</body>
+</html>

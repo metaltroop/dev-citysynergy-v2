@@ -2,12 +2,14 @@
 
 require('dotenv').config();
 const express = require('express');
+const http = require('http'); // Move this up here
 const cors = require('cors');
 const swaggerUi = require('swagger-ui-express');
 const specs = require('./config/swagger');
 const { initializeDatabase } = require('./config/database');
 const { initializeDevTables } = require('./utils/devInitializer');
 const cookieParser = require('cookie-parser');
+const { checkClashesNew, storeClashesInDB } = require("./controllers/UpdatedClashTenderController");
 
 // Import routes
 const authRoutes = require('./routes/authRoutes');
@@ -20,8 +22,18 @@ const featureRoutes = require('./routes/featureRoutes');
 const activityRoutes = require('./routes/activityRoutes');
 const inventoryRoutes = require('./routes/inventoryRoutes');
 const issueRoutes = require('./routes/IssueRoutes');
+const AllTenderRoutes = require('./routes/AllTenderRoutes');
+const clashRoutes = require('./routes/clashRoutes');
+const loadMessagesRoutes = require('./routes/loadMessagesRoutes');
+const LocationRoutes = require('./routes/LocationRoutes');
+const socketRoutes = require('./routes/socketRoutes');
+const updatedClashRoutes = require('./routes/updatedClashRoutes');
 
-const app = express();
+const app = express(); // Define app first
+
+const server = http.createServer(app); // Then create server
+
+// const updatedSocketRoutes = require('./routes/updatedSocketRoutes');
 
 // Middleware
 const allowedOrigins = ['http://localhost:5173', 'https://hoppscotch.io/','http://localhost:3000','http://127.0.0.1:5500'];
@@ -80,6 +92,12 @@ app.use('/api/features', featureRoutes);
 app.use('/api/activity', activityRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/issues', issueRoutes);
+app.use('/api/tender', AllTenderRoutes);
+app.use('/api/clashtenders', clashRoutes);
+app.use("/api/loadMessages", loadMessagesRoutes); // ✅ Fixed route usage
+app.use("/api/location", LocationRoutes);
+app.use("/api/uclashes", updatedClashRoutes);
+
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -91,6 +109,38 @@ app.use((err, req, res, next) => {
     }); 
 });
 
+const checkAndStoreClashesOnStartup = async (sequelize) => {
+  try {
+    console.log("🔍 Checking for existing clashes on startup...");
+
+    const tenders = await sequelize.query(
+      `SELECT DISTINCT Pincode FROM All_Tenders`,
+      { type: sequelize.QueryTypes.SELECT }
+    );
+
+    for (let tender of tenders) {
+      let pincode = tender.Pincode;
+
+      if (!pincode) {
+        console.warn(`⚠️ Skipping tender: Missing Pincode`);
+        continue;
+      }
+
+      console.log(`🔹 Checking clashes for Pincode: ${pincode}`);
+      const clashResponse = await checkClashesNew(sequelize, pincode);
+
+      if (Object.keys(clashResponse.clashes_by_locality).length > 0) {
+        console.log("⚠️ Clashes detected! Storing in DB...");
+        await storeClashesInDB(sequelize, clashResponse.clashes_by_locality);
+      }
+    }
+
+    console.log("✅ Clashes check and storage process completed.");
+  } catch (error) {
+    console.error("❌ Error checking clashes on startup:", error);
+  }
+};
+
 // Initialize database and start server
 const startServer = async () => {
     try {
@@ -99,6 +149,8 @@ const startServer = async () => {
         
         // Store sequelize instance in app locals
         app.locals.sequelize = sequelize;
+
+
 
         // Import routes AFTER database initialization
         const authRoutes = require('./routes/authRoutes');
@@ -112,8 +164,12 @@ const startServer = async () => {
         app.use('/api/roles', roleRoutes);
         app.use('/api/users', userRoutes);
 
+        const io = socketRoutes(server, sequelize);
+
+        await checkAndStoreClashesOnStartup(sequelize);
+
         const PORT = process.env.PORT || 3000;
-        app.listen(PORT, () => {
+        server.listen(PORT, () => {
             console.log(`Server running on port ${PORT}`);
         });
 

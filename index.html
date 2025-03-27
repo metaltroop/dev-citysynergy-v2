@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Raise Issue Form</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background-color: #f3f4f6;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    .container {
+      background-color: white;
+      padding: 20px 30px;
+      width: 450px;
+      border-radius: 10px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+    }
+
+    h2 {
+      text-align: center;
+    }
+
+    label {
+      margin-bottom: 5px;
+      font-weight: 500;
+      display: block;
+    }
+
+    input, textarea, select {
+      width: 100%;
+      margin-bottom: 15px;
+      padding: 8px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+
+    button {
+      width: 100%;
+      padding: 10px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    #responseMsg {
+      margin-top: 15px;
+      text-align: center;
+      color: green;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h2>Raise New Issue</h2>
+
+    <form id="issueForm" enctype="multipart/form-data">
+      <label>Email ID</label>
+      <input type="email" name="raisedByEmailID" required />
+
+      <label>Name</label>
+      <input type="text" name="raisedByName" required />
+
+      <label>Issue Category</label>
+      <select name="IssueCategory" id="issueCategory" required></select>
+
+      <label>Department Name</label>
+      <input type="text" id="deptNameInput" placeholder="Start typing..." autocomplete="off" />
+      <select id="deptList" required></select>
+      <input type="hidden" name="deptId" id="deptId" />
+
+      <label>Issue Name</label>
+      <input type="text" name="IssueName" required />
+
+      <label>Issue Description</label>
+      <textarea name="IssueDescription" required></textarea>
+
+      <label>Address</label>
+      <input type="text" name="address" required />
+
+      <label>Pincode</label>
+      <input type="text" id="pincodeInput" placeholder="Start typing..." />
+      <select id="pincode" name="pincode" required></select>
+
+      <label>Locality</label>
+      <input type="text" id="localityInput" placeholder="Start typing..." />
+      <select id="locality" name="locality" required></select>
+
+      <label>Upload Image</label>
+      <input type="file" name="image" accept="image/*" />
+
+      <button type="submit">Raise Issue</button>
+    </form>
+
+    <p id="responseMsg"></p>
+  </div>
+
+<script>
+  async function loadIssueCategories() {
+    try {
+      const response = await fetch("http://localhost:3000/api/issue/getIssueCategories");
+      if (!response.ok) throw new Error("Failed to fetch categories");
+
+      const categories = await response.json();
+      const categoryDropdown = document.getElementById("issueCategory");
+
+      categoryDropdown.innerHTML = '<option value="">Select Issue Category</option>';
+      if (!Array.isArray(categories) || categories.length === 0) throw new Error("No categories found");
+
+      categories.forEach(category => {
+        const option = document.createElement("option");
+        option.value = category;
+        option.textContent = category.replace(/_/g, " ");
+        categoryDropdown.appendChild(option);
+      });
+    } catch (error) {
+      console.error("Error loading categories:", error);
+      alert("Failed to load issue categories. Please try again.");
+    }
+  }
+
+  async function searchDepartment() {
+    const input = document.getElementById("deptNameInput").value.trim();
+    if (input.length < 2) return;
+
+    try {
+      const response = await fetch(`http://localhost:3000/api/issue/search-department?search=${input}`);
+      if (!response.ok) throw new Error("Failed to fetch departments");
+
+      const departments = await response.json();
+      const dropdown = document.getElementById("deptList");
+
+      dropdown.innerHTML = '<option value="">Select Department</option>';
+      departments.forEach(dept => {
+        const option = document.createElement("option");
+        option.value = dept.deptId;
+        option.textContent = dept.deptName;
+        dropdown.appendChild(option);
+      });
+    } catch (error) {
+      console.error("Error fetching departments:", error);
+    }
+  }
+
+  document.getElementById("deptList").addEventListener("change", function () {
+    document.getElementById("deptId").value = this.value;
+  });
+
+  document.getElementById("deptNameInput").addEventListener("input", searchDepartment);
+
+  async function searchPincode() {
+    const input = document.getElementById("pincodeInput").value.trim();
+    if (input.length < 2) return;
+
+    try {
+      const response = await fetch(`http://localhost:3000/api/issue/search-pincode?pincode=${input}`);
+      if (!response.ok) throw new Error("Failed to fetch pincode");
+
+      const pincodes = await response.json();
+      const dropdown = document.getElementById("pincode");
+
+      dropdown.innerHTML = '<option value="">Select Pincode</option>';
+      pincodes.forEach(pincode => {
+        const option = document.createElement("option");
+        option.value = pincode.pincode;
+        option.textContent = pincode.pincode;
+        dropdown.appendChild(option);
+      });
+    } catch (error) {
+      console.error("Error fetching pincode:", error);
+    }
+  }
+
+  async function searchLocality() {
+    const input = document.getElementById("localityInput").value.trim();
+    if (input.length < 2) return;
+
+    try {
+      const response = await fetch(`http://localhost:3000/api/issue/search-locality?locality=${input}`);
+      if (!response.ok) throw new Error("Failed to fetch locality");
+
+      const localities = await response.json();
+      const dropdown = document.getElementById("locality");
+
+      dropdown.innerHTML = '<option value="">Select Locality</option>';
+      localities.forEach(locality => {
+        const option = document.createElement("option");
+        option.value = locality.locality;
+        option.textContent = locality.locality;
+        dropdown.appendChild(option);
+      });
+    } catch (error) {
+      console.error("Error fetching locality:", error);
+    }
+  }
+
+  document.getElementById("pincodeInput").addEventListener("input", searchPincode);
+  document.getElementById("localityInput").addEventListener("input", searchLocality);
+
+  document.getElementById("issueForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const formData = new FormData(e.target);
+    formData.set("pincode", document.getElementById("pincode").value);
+    formData.set("locality", document.getElementById("locality").value);
+
+    try {
+      const response = await fetch("http://localhost:3000/api/issue/raiseIssue", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+      document.getElementById("responseMsg").innerText = data.message;
+      if (!response.ok) document.getElementById("responseMsg").style.color = "red";
+      e.target.reset();
+    } catch (error) {
+      console.error("Error:", error);
+      document.getElementById("responseMsg").innerText = "Something went wrong!";
+    }
+  });
+
+  document.addEventListener("DOMContentLoaded", loadIssueCategories);
+</script>
+
+</body>
+</html>

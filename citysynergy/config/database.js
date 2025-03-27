@@ -76,6 +76,9 @@ const initializeDatabase = async () => {
         sequelize.models.Zones = require('../models/Zones')(sequelize);
         sequelize.models.Locality = require('../models/Locality')(sequelize);
         sequelize.models.LocalArea = require('../models/LocalArea')(sequelize);
+        sequelize.models.AllTenders = require('../models/All_Tenders')(sequelize);
+        sequelize.models.Clashes = require('../models/Clashes')(sequelize);
+        sequelize.models.Messages = require('../models/messages')(sequelize);
         
         
         console.log('✓ All models registered successfully');
@@ -100,7 +103,10 @@ const initializeDatabase = async () => {
             InventoryRequest,
             InventoryHistory,
             ActivityLog,
-            UserImage
+            UserImage,
+            AllTenders,
+            Clashes,
+            Messages
         } = sequelize.models;
 
         // Dev role associations
@@ -294,8 +300,11 @@ const initializeDatabase = async () => {
             Pincode.sync().then(() => console.log('✓ Pincode table synchronized')),
             City.sync().then(() => console.log('✓ City table synchronized')),
             Zones.sync().then(() => console.log('✓ Zones table synchronized')),
-            Locality.sync().then(() => console.log('✓ Locality table synchronized')),
-            LocalArea.sync().then(() => console.log('✓ LocalArea table synchronized'))
+            Locality.sync({alter: true}).then(() => console.log('✓ Locality table synchronized')),
+            LocalArea.sync().then(() => console.log('✓ LocalArea table synchronized')),
+            AllTenders.sync({alter: true}).then(() => console.log('✓ All_Tenders table synchronized')),
+            Clashes.sync({alter: true}).then(() => console.log('✓ Clashes table synchronized')),
+            Messages.sync().then(() => console.log('✓ Messages table synchronized'))
         ]);
 
         console.log('✓ All models synchronized successfully\n'); 

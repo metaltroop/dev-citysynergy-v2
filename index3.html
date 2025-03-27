@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clash Chat</title>
+  <script src="https://cdn.jsdelivr.net/npm/jwt-decode/build/jwt-decode.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background-color: #f8f8f8;
+    }
+
+    #login-container,
+    #chat-container {
+      max-width: 600px;
+      margin: auto;
+      padding: 20px;
+      background: white;
+      border-radius: 10px;
+      box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+      margin-top: 50px;
+    }
+
+    input {
+      width: 90%;
+      padding: 10px;
+      margin: 10px 0;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+    }
+
+    button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #0056b3;
+    }
+
+    #messages {
+      height: 300px;
+      overflow-y: auto;
+      border: 1px solid #ccc;
+      margin-bottom: 10px;
+      padding: 10px;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .message {
+      max-width: 70%;
+      padding: 8px 15px;
+      border-radius: 10px;
+      word-wrap: break-word;
+      margin-bottom: 10px;
+    }
+
+    .sent {
+      background-color: #d4edda;
+      align-self: flex-end;
+      text-align: right;
+    }
+
+    .received {
+      background-color: #f8d7da;
+      align-self: flex-start;
+      text-align: left;
+    }
+
+    .message-header {
+      font-size: 12px;
+      font-weight: bold;
+      margin-bottom: 3px;
+    }
+
+    .message-content {
+      font-size: 16px;
+    }
+
+    .message-timestamp {
+      font-size: 10px;
+      color: gray;
+      margin-top: 5px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- Login Section -->
+  <div id="login-container">
+    <h2>Join Chat</h2>
+    <input type="text" id="clashID" placeholder="Enter Clash ID">
+    <button onclick="joinChat()">Join</button>
+  </div>
+
+  <!-- Chat Section -->
+  <div id="chat-container" style="display: none;">
+    <h2>Clash Chat</h2>
+    <p><strong>Dept ID:</strong> <span id="deptIdDisplay"></span></p>
+    <p><strong>Email:</strong> <span id="emailDisplay"></span></p>
+    <div id="messages"></div>
+    <input type="text" id="message" placeholder="Type a message..." onkeypress="handleKeyPress(event)">
+    <button onclick="sendMessage()">Send</button>
+  </div>
+  <script src="http://localhost:3000/socket.io/socket.io.js"></script>
+
+  <script>
+    const socket = io("http://localhost:3000");
+    let token ="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1dWlkIjoiVVNSMDA3IiwidHlwZSI6ImRlcHQiLCJkZXB0SWQiOiJERVBUMDAyIiwiaWF0IjoxNzQzMDc3NzE5LCJleHAiOjE3NDMwODA0MTl9.nmuklMa3CsDWSH0cLk3yhoWUVaiOn5g9JWmtSAO53z0";    let userDeptId = '';
+    let userEmail = '';
+    let userClashID = '';
+
+// Decode JWT properly
+if (!token) {
+    alert('No token found. Please log in first.');
+} else {
+    try {
+        const decoded = jwt_decode(token);
+        userDeptId = decoded.deptId || 'Unknown Dept';
+        userEmail = decoded.email ? decoded.email.toLowerCase() : 'Unknown Email';  // Ensure email is lowercase
+    } catch (error) {
+        alert('Invalid token.');
+    }
+}
+
+    function joinChat() {
+      const clashID = document.getElementById('clashID').value.trim();
+      if (!clashID) {
+        alert('Please enter a Clash ID.');
+        return;
+      }
+
+      userClashID = clashID;
+
+      // Join Socket.io room
+      socket.emit('joinRoom', { clashId: userClashID });
+
+      // Switch UI
+      document.getElementById('login-container').style.display = 'none';
+      document.getElementById('chat-container').style.display = 'block';
+      document.getElementById('deptIdDisplay').textContent = userDeptId;
+      document.getElementById('emailDisplay').textContent = userEmail;
+
+      // Load previous messages
+      loadMessages();
+    }
+
+    async function loadMessages() {
+      try {
+        const response = await fetch(`http://localhost:3000/api/loadMessages/messages?clashId=${userClashID}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        const data = await response.json();
+
+        if (response.ok) {
+          const messagesDiv = document.getElementById('messages');
+          messagesDiv.innerHTML = '';
+
+          data.messages.forEach(({ email, message, createdAt }) => {
+            displayMessage(email, message, createdAt);
+          });
+
+          scrollToBottom();
+        } else {
+          console.error('Failed to load messages:', data.message);
+        }
+      } catch (error) {
+        console.error('Error loading messages:', error);
+      }
+    }
+
+    function sendMessage() {
+      const messageInput = document.getElementById('message');
+      const message = messageInput.value.trim();
+      if (!message) return;
+
+      socket.emit('chatMessage', {
+        clashId: userClashID,
+        deptId: userDeptId,
+        email: userEmail,
+        message: message
+      });
+
+      messageInput.value = '';
+    }
+
+    function handleKeyPress(event) {
+      if (event.key === 'Enter') {
+        sendMessage();
+      }
+    }
+
+
+// Function to display messages correctly
+function displayMessage(senderEmail, message, timestamp) {
+    const messagesDiv = document.getElementById('messages');
+    const msgDiv = document.createElement('div');
+
+    // Ensure comparison is case-insensitive and valid
+    const isSentByUser = userEmail !== 'Unknown Email' && senderEmail.toLowerCase() === userEmail;
+
+    msgDiv.classList.add('message', isSentByUser ? 'sent' : 'received');
+    msgDiv.innerHTML = `
+        <div class="message-header">${!isSentByUser ? senderEmail : ''}</div>
+        <div class="message-content">${message}</div>
+        <div class="message-timestamp">${new Date(timestamp).toLocaleString()}</div>
+    `;
+
+    messagesDiv.appendChild(msgDiv);
+    scrollToBottom();
+}   
+    function scrollToBottom() {
+      const messagesDiv = document.getElementById('messages');
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    socket.on('message', ({ email, message, createdAt }) => {
+      displayMessage(email, message, createdAt);
+    });
+  </script>
+
+</body>
+
+</html>
