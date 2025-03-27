@@ -21,6 +21,7 @@
     "jsonwebtoken": "^9.0.0",
     "mysql2": "^3.2.0",
     "node-fetch": "^3.3.2",
+    "nodemailer": "^6.10.0",
     "sequelize": "^6.30.0",
     "swagger": "^0.0.1",
     "swagger-jsdoc": "^6.2.8",

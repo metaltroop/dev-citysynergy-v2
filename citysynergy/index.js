@@ -187,6 +187,10 @@ app.get('/', (req, res) => {
 }
 );
 
+app.get('/ping', (req, res) => {
+    res.json({ status: "success", message: "ping from python" });
+});
+
 // Export for testing
 module.exports = app;
 
