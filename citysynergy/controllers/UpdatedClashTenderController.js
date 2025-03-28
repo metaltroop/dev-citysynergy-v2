@@ -11,6 +11,8 @@ const DEPARTMENT_PRIORITY = {
   "Urban Development Authority": 8,
   "Municipal Corporation": 9,
   "Public Works Department": 10,
+  "dept test 1":11,
+  "dept test 2":12
 };
 
 /**
