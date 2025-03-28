@@ -300,10 +300,10 @@ const initializeDatabase = async () => {
             Pincode.sync().then(() => console.log('✓ Pincode table synchronized')),
             City.sync().then(() => console.log('✓ City table synchronized')),
             Zones.sync().then(() => console.log('✓ Zones table synchronized')),
-            Locality.sync({alter: true}).then(() => console.log('✓ Locality table synchronized')),
+            Locality.sync().then(() => console.log('✓ Locality table synchronized')),
             LocalArea.sync().then(() => console.log('✓ LocalArea table synchronized')),
-            AllTenders.sync({alter: true}).then(() => console.log('✓ All_Tenders table synchronized')),
-            Clashes.sync({alter: true}).then(() => console.log('✓ Clashes table synchronized')),
+            AllTenders.sync().then(() => console.log('✓ All_Tenders table synchronized')),
+            Clashes.sync().then(() => console.log('✓ Clashes table synchronized')),
             Messages.sync().then(() => console.log('✓ Messages table synchronized'))
         ]);
 
