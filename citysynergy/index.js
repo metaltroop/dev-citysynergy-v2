@@ -41,22 +41,25 @@ const allowedOrigins = ['http://localhost:5173', 'https://hoppscotch.io/','http:
 
 const corsOptions = {
     origin: function (origin, callback) {
-        if (!origin || allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
+        if (!origin || allowedOrigins.includes(origin)) {
             callback(null, true);
         } else {
             callback(new Error('Not allowed by CORS'));
         }
-    },// Update this to match your frontend URL
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     exposedHeaders: ['Content-Range', 'X-Content-Range']
 };
 
+app.use(cors(corsOptions));
+app.set('trust proxy', 1); // Trust the first proxy
+app.use(cookieParser());
+
 // Add pre-flight handling
 app.options('*', cors(corsOptions));
 
-app.use(cors(corsOptions));
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
     res.header('Access-Control-Allow-Credentials', 'true');
@@ -76,7 +79,6 @@ app.use((err, req, res, next) => {
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-app.use(cookieParser()); // Enable cookie parsing
 
 // Swagger documentation route
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(specs));
