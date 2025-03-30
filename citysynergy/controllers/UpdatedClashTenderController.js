@@ -4,14 +4,14 @@ const DEPARTMENT_PRIORITY = {
   "Disaster Management Authority": 1,
   "Dept. Of Waterworks": 2,
   "Gas Pipeline Department": 3,
-  "dept. of road works": 4,
-  "Dept. Of electricity": 5,
+  "dept. of road works ": 4,
+  "Dept. of Electricity": 5,
   "Sanitation and Waste Management Department": 6,
   "Telecommunication Department": 7,
   "Urban Development Authority": 8,
   "Municipal Corporation": 9,
   "Public Works Department": 10,
-  "dept test 1":11,
+  "dept test":11,
   "dept test 2":12,
 };
 
