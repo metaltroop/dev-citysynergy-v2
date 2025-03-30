@@ -229,6 +229,11 @@ const storeClashesInDB = async (sequelize, clashesByLocality) => {
       return `Clash${nextNumber}`;
     };
 
+    // Add this helper function
+    const normalizeDepartmentName = (name) => {
+      return name.trim().toLowerCase().replace(/\s+/g, ' ');
+    };
+
     for (const [locality, clashes] of Object.entries(clashesByLocality)) {
       if (!locality || locality.trim() === "") {
         console.error("❌ Error: Locality is missing or empty. Skipping...");
@@ -259,8 +264,9 @@ const storeClashesInDB = async (sequelize, clashesByLocality) => {
           continue;
         }
 
+        // Modify the department lookup
         const deptRecords = await CommonDepts.findAll({
-          where: { deptName: { [Op.in]: departmentNames } },
+          where: { deptName: { [Op.in]: departmentNames.map(name => normalizeDepartmentName(name)) } },
           attributes: ["deptId", "deptName"],
         });
 
@@ -393,16 +399,17 @@ const storeClashesInDB = async (sequelize, clashesByLocality) => {
             console.log(`✅ Updated Clash ${existingUnresolvedClash.clashID}`);
           }
         } else {
-          const newClashID = await getNextClashID();
-          console.log(`🆕 Creating new clash: ${newClashID}`);
-          await Clashes.create({
-            clashID: newClashID,
-            Locality: locality,
-            involved_departments: involvedDepartments,
-            involved_tenders: [...involvedTenders],
-            start_dates: startDates,
-            end_dates: endDates,
-            is_resolved: false,
+          await sequelize.transaction(async (transaction) => {
+            const clashId = await getNextClashID();
+            await Clashes.create({
+              clashID: clashId,
+              Locality: locality,
+              involved_departments: involvedDepartments,
+              involved_tenders: Array.from(involvedTenders),
+              start_dates: startDates,
+              end_dates: endDates,
+              is_resolved: false
+            }, { transaction });
           });
         }
       }
@@ -411,6 +418,7 @@ const storeClashesInDB = async (sequelize, clashesByLocality) => {
     console.log("✅ All detected clashes stored successfully.");
   } catch (error) {
     console.error("❌ Error storing clashes in DB:", error);
+    throw error; // Add throw to propagate error
   }
 };
 
