@@ -670,7 +670,6 @@ const getClashIdByDeptId = async (req, res) => {
     const { deptId } = req.user; // Extracted from JWT middleware
 
     // Log the extracted deptId
-    console.log(`✅ Extracted deptId from token: ${deptId}`);
 
     if (!deptId) {
       console.error("❌ Unauthorized: No department assigned in token");

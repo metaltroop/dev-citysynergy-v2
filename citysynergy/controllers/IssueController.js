@@ -284,19 +284,35 @@ exports.getIssueStatusById = async (req, res) => {
 
     let status = issue.issueStatus;
 
-    // Ensure consistency in status
-    if (status.working) {
-      status.pending = false; // Can't be pending if it's already working
-    }
+    // If resolved, all previous statuses should be true
     if (status.resolved) {
-      status.pending = false;
-      status.working = false;
-      status.accepted = true; // Must be accepted before resolving
+      status = {
+        raised: true,
+        in_review: true,
+        accepted: true,
+        pending: true,
+        working: true,
+        resolved: true
+      };
     }
 
-    // If resolved, return only resolved issues
-    if (status.resolved) {
-      return res.status(200).json({ issueStatus: { resolved: true } });
+    // Ensure status flow consistency
+    const statusFlow = ["raised", "in_review", "accepted", "pending", "working", "resolved"];
+    let lastTrueIndex = -1;
+
+    // Find the last true status in the flow
+    for (let i = statusFlow.length - 1; i >= 0; i--) {
+      if (status[statusFlow[i]]) {
+        lastTrueIndex = i;
+        break;
+      }
+    }
+
+    // All statuses before the last true status should be true
+    if (lastTrueIndex > 0) {
+      for (let i = 0; i < lastTrueIndex; i++) {
+        status[statusFlow[i]] = true;
+      }
     }
 
     res.status(200).json({ issueStatus: status });
