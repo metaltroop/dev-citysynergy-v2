@@ -73,11 +73,27 @@ const getSystemActivity = async (sequelize, days = 30) => {
         const startDate = new Date();
         startDate.setDate(startDate.getDate() - days);
         
-        // Get daily activity counts
+        // Get daily activity counts with more detailed metrics
         const dailyActivity = await ActivityLog.findAll({
             attributes: [
                 [sequelize.fn('DATE', sequelize.col('createdAt')), 'date'],
-                [sequelize.fn('COUNT', sequelize.col('logId')), 'count']
+                [sequelize.fn('COUNT', sequelize.col('logId')), 'totalCount'],
+                [
+                    sequelize.literal(`COUNT(CASE WHEN activityType = 'LOGIN' THEN 1 END)`),
+                    'loginCount'
+                ],
+                [
+                    sequelize.literal(`COUNT(CASE WHEN activityType = 'USER_CREATED' OR activityType = 'USER_UPDATED' THEN 1 END)`),
+                    'userActivityCount'
+                ],
+                [
+                    sequelize.literal(`COUNT(CASE WHEN activityType = 'DEPT_CREATED' OR activityType = 'DEPT_UPDATED' THEN 1 END)`),
+                    'deptActivityCount'
+                ],
+                [
+                    sequelize.literal(`COUNT(CASE WHEN activityType = 'SYSTEM' THEN 1 END)`),
+                    'systemCount'
+                ]
             ],
             where: {
                 createdAt: {
@@ -101,14 +117,37 @@ const getSystemActivity = async (sequelize, days = 30) => {
             },
             group: ['activityType']
         });
+
+        // Get hourly distribution for the selected period
+        const hourlyDistribution = await ActivityLog.findAll({
+            attributes: [
+                [sequelize.fn('HOUR', sequelize.col('createdAt')), 'hour'],
+                [sequelize.fn('COUNT', sequelize.col('logId')), 'count']
+            ],
+            where: {
+                createdAt: {
+                    [Op.gte]: startDate
+                }
+            },
+            group: [sequelize.fn('HOUR', sequelize.col('createdAt'))],
+            order: [[sequelize.fn('HOUR', sequelize.col('createdAt')), 'ASC']]
+        });
         
         return {
             dailyActivity: dailyActivity.map(item => ({
                 date: item.getDataValue('date'),
-                count: parseInt(item.getDataValue('count'))
+                total: parseInt(item.getDataValue('totalCount')),
+                logins: parseInt(item.getDataValue('loginCount')),
+                userActivity: parseInt(item.getDataValue('userActivityCount')),
+                deptActivity: parseInt(item.getDataValue('deptActivityCount')),
+                system: parseInt(item.getDataValue('systemCount'))
             })),
             activityTypes: activityTypes.map(item => ({
                 type: item.activityType,
+                count: parseInt(item.getDataValue('count'))
+            })),
+            hourlyDistribution: hourlyDistribution.map(item => ({
+                hour: parseInt(item.getDataValue('hour')),
                 count: parseInt(item.getDataValue('count'))
             }))
         };

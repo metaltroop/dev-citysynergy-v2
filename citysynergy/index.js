@@ -23,11 +23,12 @@ const activityRoutes = require('./routes/activityRoutes');
 const inventoryRoutes = require('./routes/inventoryRoutes');
 const issueRoutes = require('./routes/IssueRoutes');
 const AllTenderRoutes = require('./routes/AllTenderRoutes');
-const clashRoutes = require('./routes/clashRoutes');
+// const clashRoutes = require('./routes/clashRoutes');
 const loadMessagesRoutes = require('./routes/loadMessagesRoutes');
 const LocationRoutes = require('./routes/LocationRoutes');
 const socketRoutes = require('./routes/socketRoutes');
 const updatedClashRoutes = require('./routes/updatedClashRoutes');
+const deptActivityRoutes = require('./routes/deptActivityRoutes');
 
 const app = express(); // Define app first
 
@@ -95,10 +96,10 @@ app.use('/api/activity', activityRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/issues', issueRoutes);
 app.use('/api/tender', AllTenderRoutes);
-app.use('/api/clashtenders', clashRoutes);
 app.use("/api/loadMessages", loadMessagesRoutes); // ✅ Fixed route usage
 app.use("/api/location", LocationRoutes);
 app.use("/api/uclashes", updatedClashRoutes);
+app.use("/api/deptactivity", deptActivityRoutes);
 
 
 // Error handling middleware
