@@ -1,0 +1,71 @@
+// Overview stats for department dashboard
+const getDeptOverview = async (req, res) => {
+    try {
+        const { deptId } = req.user;
+        const { sequelize } = req.app.locals;
+        const { CommonDepts, CommonUsers, AllTenders, Clashes, CommonInventory, CommonIssuees } = sequelize.models;
+
+        if (!deptId) {
+            return res
+              .status(400)
+              .json({ success: false, message: "Invalid token: deptId missing" });
+          }
+
+        // 1. Fetch department row
+        const department = await CommonDepts.findOne({ where: { deptId, isDeleted: false } });
+        if (!department) {
+            return res.status(404).json({
+                success: false,
+                message: 'Department not found or inactive'
+            });
+        }
+
+        // 2. Build prefix (if needed for future use)
+        const deptName = department.deptName;
+        const deptCode = department.deptCode;
+        const prefix = `${deptId}_${deptCode}`;
+
+        // 3. Aggregate stats from global tables filtered by deptId
+        const [
+            totalUsers,
+            totalTenders,
+            activeTenders,
+            totalClashes,
+            totalInventory,
+            unresolvedIssues
+        ] = await Promise.all([
+            CommonUsers.count({ where: { deptId, isDeleted: false } }),
+            AllTenders.count({ where: { Tender_by_Department: deptName, } }),
+            AllTenders.count({ where: { Tender_by_Department: deptName,  Complete_Pending: 'pending' } }),
+            Clashes.count({ where: sequelize.literal(
+                `JSON_KEYS(involved_departments) LIKE '%"${deptId}"%'`
+              ) }),
+            CommonInventory.count({ where: { deptId, isDeleted: false } }),
+            CommonIssuees.count({ where: { deptId, "issueStatus.resolved": false } })
+        ]);
+
+        // 4. Respond with all stats
+        res.status(200).json({
+            success: true,
+            data: {
+                totalUsers,
+                totalTenders,
+                activeTenders,
+                totalClashes,
+                totalInventory,
+                unresolvedIssues
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching department overview stats:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching department overview stats',
+            error: error.message
+        });
+    }
+};
+
+module.exports = {
+    getDeptOverview
+};

@@ -391,6 +391,18 @@ const storeClashesInDB = async (sequelize, clashesByLocality) => {
             });
 
             console.log(`✅ Updated Clash ${existingUnresolvedClash.clashID}`);
+
+            // Log clash update
+            await activityLogService.createActivityLog(sequelize, {
+              activityType: 'CLASH_UPDATED',
+              description: `Clash ${existingUnresolvedClash.clashID} updated with new tenders`,
+              metadata: {
+                clashId: existingUnresolvedClash.clashID,
+                locality,
+                newTenders: [...involvedTenders],
+                departments: Object.keys(involvedDepartments)
+              }
+            });
           }
         } else {
           const newClashID = await getNextClashID();
@@ -403,6 +415,18 @@ const storeClashesInDB = async (sequelize, clashesByLocality) => {
             start_dates: startDates,
             end_dates: endDates,
             is_resolved: false,
+          });
+
+          // Log new clash creation
+          await activityLogService.createActivityLog(sequelize, {
+            activityType: 'CLASH_DETECTED',
+            description: `New clash ${newClashID} detected in ${locality}`,
+            metadata: {
+              clashId: newClashID,
+              locality,
+              tenders: [...involvedTenders],
+              departments: Object.keys(involvedDepartments)
+            }
           });
         }
       }
@@ -560,6 +584,20 @@ const updateInvolvedDeptStatus = async (req, res) => {
           }
         }
       }
+
+      // Log clash resolution
+      await activityLogService.createActivityLog(sequelize, {
+        activityType: 'CLASH_RESOLVED',
+        description: `Clash ${clashID} has been resolved`,
+        userId: req.user.uuid,
+        deptId: deptId,
+        metadata: {
+          clashId: clashID,
+          locality: clash.Locality,
+          tenders: clash.involved_tenders,
+          departments: Object.keys(clash.involved_departments)
+        }
+      });
     }
 
     // Update clash record
