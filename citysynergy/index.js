@@ -29,7 +29,7 @@ const LocationRoutes = require('./routes/LocationRoutes');
 const socketRoutes = require('./routes/socketRoutes');
 const updatedClashRoutes = require('./routes/updatedClashRoutes');
 const deptActivityRoutes = require('./routes/deptActivityRoutes');
-
+const hPgTenderSearchRoutes = require('./routes/hPgTenderSearchRoutes');
 const app = express(); // Define app first
 
 const server = http.createServer(app); // Then create server
@@ -100,7 +100,7 @@ app.use("/api/loadMessages", loadMessagesRoutes); // ✅ Fixed route usage
 app.use("/api/location", LocationRoutes);
 app.use("/api/uclashes", updatedClashRoutes);
 app.use("/api/deptactivity", deptActivityRoutes);
-
+app.use("/api/hpgsearch", hPgTenderSearchRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
