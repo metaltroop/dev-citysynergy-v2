@@ -294,7 +294,7 @@ const initializeDatabase = async () => {
             CommonInventory.sync().then(() => console.log('✓ CommonInventory table synchronized')),
             InventoryRequest.sync().then(() => console.log('✓ InventoryRequest table synchronized')),
             InventoryHistory.sync().then(() => console.log('✓ InventoryHistory table synchronized')),
-            ActivityLog.sync().then(() => console.log('✓ ActivityLog table synchronized')),
+            ActivityLog.sync({alter: true}).then(() => console.log('✓ ActivityLog table synchronized')),
             UserImage.sync().then(() => console.log('✓ UserImage table synchronized')),
             CommonIssuees.sync().then(() => console.log('✓ CommonIssuees table synchronized')),
             Pincode.sync().then(() => console.log('✓ Pincode table synchronized')),

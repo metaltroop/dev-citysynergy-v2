@@ -1,4 +1,5 @@
 const { QueryTypes, Op } = require("sequelize");
+const activityLogService = require("../services/activityLogService");
 
 const DEPARTMENT_PRIORITY = {
   "Disaster Management Authority": 1,
@@ -365,11 +366,16 @@ const storeClashesInDB = async (sequelize, clashesByLocality) => {
           let existingDepartments = existingUnresolvedClash.involved_departments || {};
           let existingTenders = new Set(existingUnresolvedClash.involved_tenders || []);
 
+          // Merge all departments from involvedDepartments into existingDepartments
+          let updatedDepartments = { ...existingDepartments };
           Object.keys(involvedDepartments).forEach((deptId) => {
-            if (!(deptId in existingDepartments)) {
-              existingDepartments[deptId] = false;
+            if (!(deptId in updatedDepartments)) {
+              updatedDepartments[deptId] = false;
             }
           });
+
+          console.log("Before update, updatedDepartments:", updatedDepartments);
+          console.log("involvedDepartments:", involvedDepartments);
 
           let tendersInResolvedClashes = new Set();
           existingResolvedClashes.forEach((clash) => {
@@ -380,11 +386,11 @@ const storeClashesInDB = async (sequelize, clashesByLocality) => {
             (tender) => !existingTenders.has(tender) && !tendersInResolvedClashes.has(tender)
           );
 
-          if (newTenders.length > 0) {
+          if (newTenders.length > 0 || Object.keys(updatedDepartments).length !== Object.keys(existingDepartments).length) {
             newTenders.forEach((tender) => existingTenders.add(tender));
 
             await existingUnresolvedClash.update({
-              involved_departments: existingDepartments,
+              involved_departments: { ...updatedDepartments }, // force a new object
               involved_tenders: [...existingTenders],
               start_dates: startDates,
               end_dates: endDates,
@@ -394,13 +400,13 @@ const storeClashesInDB = async (sequelize, clashesByLocality) => {
 
             // Log clash update
             await activityLogService.createActivityLog(sequelize, {
-              activityType: 'CLASH_UPDATED',
-              description: `Clash ${existingUnresolvedClash.clashID} updated with new tenders`,
+              activityType: 'CH_UPD',
+              description: `Clash ${existingUnresolvedClash.clashID} updated with new tenders or departments`,
               metadata: {
                 clashId: existingUnresolvedClash.clashID,
                 locality,
                 newTenders: [...involvedTenders],
-                departments: Object.keys(involvedDepartments)
+                departments: Object.keys(updatedDepartments)
               }
             });
           }

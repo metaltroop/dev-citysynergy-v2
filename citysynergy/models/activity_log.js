@@ -9,7 +9,8 @@ module.exports = (sequelize) => {
         },
         activityType: {
             type: DataTypes.ENUM('USER_CREATED', 'USER_UPDATED', 'DEPT_CREATED', 'DEPT_UPDATED', 
-                               'ROLE_MODIFIED', 'CLASH_DETECTED', 'LOGIN', 'LOGOUT', 'SYSTEM'),
+        'ROLE_MODIFIED', 'CH_UPD', 'CLASH_DETECTED', 'CLASH_RESOLVED', 'LOGIN', 'LOGOUT', 'SYSTEM'
+),
             allowNull: false
         },
         description: {
